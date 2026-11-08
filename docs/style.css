@@ -61,6 +61,16 @@ h3 { font-size: 1.1rem; line-height: 1.35; }
 .features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-top: 1.5rem; }
 .features article { background: var(--surface); border: 1px solid var(--line); border-radius: 0.85rem; padding: 1.35rem; }
 .features p, .install-details p { margin-top: 0.5rem; color: var(--muted); }
+.screenshots, .credits { border-top: 1px solid var(--line); }
+.screenshots > p, .credits p { margin-top: 0.65rem; color: var(--muted); }
+.screenshot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; margin-top: 1.5rem; }
+.screenshot-grid figure { margin: 0; min-width: 0; }
+.screenshot-grid a { display: block; border-radius: 0.75rem; }
+.screenshot-grid img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 0.75rem; }
+.screenshot-grid figcaption { margin-top: 0.55rem; color: var(--muted); font-size: 0.9rem; }
+.credits h3 { margin-top: 1.5rem; }
+.credits ul { margin-block: 0.65rem; padding-left: 1.4rem; }
+.credits li + li { margin-top: 0.25rem; }
 .install { border-top: 1px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem 3rem; }
 .install ol { padding-left: 1.4rem; margin-bottom: 0; }
 .install li + li { margin-top: 0.4rem; }
@@ -69,6 +79,7 @@ h3 { font-size: 1.1rem; line-height: 1.35; }
 
 @media (max-width: 47rem) {
   .features { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .screenshot-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 33rem) {

@@ -170,6 +170,7 @@ struct TemplatesView: View {
     let openSite: (URL, Bool) -> Void
     @State private var editing: SiteTemplate?
     @State private var selectedSite: GallerySite?
+    @State private var ruleFromSite: SiteTemplate?
     @State private var showAuthentication = false
     @State private var section = TemplateSection.gallery
     @State private var siteSearch = ""
@@ -228,8 +229,25 @@ struct TemplatesView: View {
                 }
             }
         }
-        .sheet(item: $selectedSite) { site in
-            GallerySiteDetail(site: site) { url in openSite(url, section == .video) }
+        .sheet(item: $selectedSite, onDismiss: {
+            if let draft = ruleFromSite {
+                ruleFromSite = nil
+                section = .web
+                editing = draft
+            }
+        }) { site in
+            GallerySiteDetail(site: site) { url in
+                openSite(url, section == .video)
+            } createRule: { host in
+                let preset = URL.web(host, assumingHTTPS: true).flatMap { url in
+                    SiteTemplate.presets.first { $0.matches(url) }
+                }
+                var draft = preset ?? SiteTemplate()
+                draft.id = UUID()
+                draft.name = site.name + " Web Rule"
+                draft.host = host
+                ruleFromSite = draft
+            }
         }
         .sheet(isPresented: $showAuthentication) {
             GalleryAuthenticationView(gallery: browser.gallery)
@@ -282,6 +300,12 @@ struct TemplatesView: View {
                         row(template, builtin: false)
                             .contextMenu {
                                 Button("Edit") { editing = template }
+                                Button("Duplicate as New Rule…") {
+                                    var draft = template
+                                    draft.id = UUID()
+                                    draft.name += " Copy"
+                                    editing = draft
+                                }
                                 Button("Delete", role: .destructive) { browser.templates.removeAll { $0.id == template.id } }
                             }
                     }

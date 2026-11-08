@@ -15,6 +15,7 @@
       <a class="brand" href="./">Media Harbor</a>
       <nav aria-label="Main navigation">
         <a href="#features">Features</a>
+        <a href="#screenshots">Screenshots</a>
         <a href="#install">Install</a>
         <a href="https://github.com/TMRJIJ/MediaHarbor">GitHub</a>
       </nav>
@@ -60,12 +61,31 @@
         </article>
         <article>
           <h3>Customize site templates</h3>
-          <p>See a recommended template when you paste a link, or create Web Rules to choose what to collect and how far to follow links.</p>
+          <p>See a recommended template when you paste a link, or create a custom Web Rule from an existing site template.</p>
         </article>
         <article>
-          <h3>Browse your image gallery</h3>
-          <p>Review downloaded images as thumbnails, open them at a larger size, or play a slideshow.</p>
+          <h3>Browse media by project</h3>
+          <p>Move the pointer across a project thumbnail to preview its images. Open the project to see a slideshow or play saved videos.</p>
         </article>
+      </div>
+    </section>
+
+    <section id="screenshots" class="container section screenshots" aria-labelledby="screenshots-title">
+      <h2 id="screenshots-title">Screenshots</h2>
+      <p>Captured in Media Harbor with example links and sample images.</p>
+      <div class="screenshot-grid">
+        <figure>
+          <a href="screenshots/downloads.png">
+            <img src="screenshots/downloads.png" width="2320" height="1488" alt="Media Harbor Downloads with the Alpine Light project expanded to show sample images and the File Type column" loading="lazy">
+          </a>
+          <figcaption>Downloads grouped by source project</figcaption>
+        </figure>
+        <figure>
+          <a href="screenshots/gallery.png">
+            <img src="screenshots/gallery.png" width="2320" height="1488" alt="Media Harbor Gallery showing four projects with colorful landscape thumbnails" loading="lazy">
+          </a>
+          <figcaption>Gallery projects with image previews</figcaption>
+        </figure>
       </div>
     </section>
 
@@ -83,6 +103,21 @@
         <p>gallery-dl, yt-dlp, FFmpeg, Python, and Deno ship with the app. Check for signed updates in Settings or opt in to automatic installation.</p>
         <p>This build uses an ad hoc macOS signature. <a href="https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unidentified-developer-mh40616/mac">Apple’s guide to opening an app from an unidentified developer</a>.</p>
       </div>
+    </section>
+
+    <section id="credits" class="container section credits" aria-labelledby="credits-title">
+      <h2 id="credits-title">Credits</h2>
+      <p>Media Harbor is developed by Isiah Johnson. <a href="https://isiahjohnson.com/">isiahjohnson.com</a></p>
+      <p>ChatGPT Codex was used during development and testing.</p>
+      <h3>Bundled dependencies</h3>
+      <ul>
+        <li><a href="https://github.com/mikf/gallery-dl">gallery-dl</a> by Mike Fährmann and contributors</li>
+        <li><a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a> and <a href="https://github.com/yt-dlp/ejs">yt-dlp EJS</a> by their project contributors</li>
+        <li><a href="https://ffmpeg.org/">FFmpeg</a> by the FFmpeg project and contributors</li>
+        <li><a href="https://www.python.org/">CPython</a> by the Python Software Foundation and contributors</li>
+        <li><a href="https://github.com/denoland/deno">Deno</a> by the Deno project and contributors</li>
+      </ul>
+      <p>Third-party licenses ship with the app. <a href="https://github.com/TMRJIJ/MediaHarbor#how-its-built">View dependency details and build instructions</a>.</p>
     </section>
   </main>
   <footer class="container site-footer">

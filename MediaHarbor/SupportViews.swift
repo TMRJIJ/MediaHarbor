@@ -17,6 +17,7 @@ struct HelpView: View {
                 }
                 topic("Use templates and sign in", icon: "key") {
                     Text("Browse gallery-dl Sites and yt-dlp Sites in Templates for supported sites and example URLs. Create a Web Rule to specify which parts of a page contain media or links to galleries.")
+                    Text("Open a site template and choose Create Web Rule to start an editable rule for that site.")
                     Text("Under Templates → Authentication, import a cookies.txt file for this session or connect an account with OAuth where supported.")
                 }
                 topic("Download videos and streams", icon: "film") {
@@ -29,7 +30,7 @@ struct HelpView: View {
                     Text("Open Settings (⌘,) to set the save folder, folder naming, simultaneous downloads, retries, and automatic start. If automatic start is off, click Start Queue or start individual files.")
                 }
                 topic("View downloaded media", icon: "photo.on.rectangle.angled") {
-                    Text("Open Gallery and select a thumbnail to preview an image or play a video. Use Slideshow for images. Use an item’s menu to move it to Trash.")
+                    Text("Move across a Gallery project’s thumbnail to preview its images, then open the project. Select an image to preview it or a video to play it. Use Slideshow for images.")
                 }
                 topic("Update the app and dependencies", icon: "arrow.trianglehead.clockwise") {
                     Text("In Settings, Check for Updates finds signed releases, including their bundled dependencies. You can also opt in to installation at launch when the app is idle.")
@@ -73,6 +74,12 @@ struct AboutView: View {
                     PageHeading(title: "Media Harbor", detail: version)
                 }
                 Text("A bulk media downloader for macOS Tahoe 26 or later, built for Apple Silicon and Intel.")
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Developed by Isiah Johnson").fontWeight(.medium)
+                    Link("isiahjohnson.com", destination: URL(string: "https://isiahjohnson.com/")!)
+                    Text("ChatGPT Codex was used during development and testing.")
+                        .foregroundStyle(.secondary)
+                }
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("How it’s built").font(.headline).accessibilityAddTraits(.isHeader)
@@ -82,10 +89,12 @@ struct AboutView: View {
 
                 VStack(alignment: .leading, spacing: 9) {
                     Text("Bundled dependencies").font(.headline).accessibilityAddTraits(.isHeader)
-                    dependency("gallery-dl", version: galleryVersion, detail: "Discovers images and other files on supported sites.")
-                    dependency("yt-dlp", version: YTDLPIntegration.catalog?.version, detail: "Finds and downloads videos, audio, and playlists.")
-                    dependency("FFmpeg", detail: "Records streams and combines separate audio and video.")
-                    dependency("Python and Deno", detail: "Run the extractors and YouTube’s JavaScript support.")
+                    dependency("gallery-dl", version: galleryVersion, credit: "Mike Fährmann and contributors", project: "https://github.com/mikf/gallery-dl")
+                    dependency("yt-dlp", version: YTDLPIntegration.catalog?.version, credit: "The yt-dlp project and contributors", project: "https://github.com/yt-dlp/yt-dlp")
+                    dependency("FFmpeg", credit: "The FFmpeg project and contributors", project: "https://ffmpeg.org/")
+                    dependency("CPython", credit: "Python Software Foundation and contributors", project: "https://www.python.org/")
+                    dependency("Deno", credit: "The Deno project and contributors", project: "https://github.com/denoland/deno")
+                    dependency("yt-dlp EJS", credit: "The yt-dlp EJS project and contributors", project: "https://github.com/yt-dlp/ejs")
                     Text("Third-party license files ship with the app.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -96,11 +105,11 @@ struct AboutView: View {
         .frame(minWidth: 450, minHeight: 400)
     }
 
-    private func dependency(_ name: String, version: String? = nil, detail: String) -> some View {
+    private func dependency(_ name: String, version: String? = nil, credit: String, project: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text([name, version].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " "))
+            Link([name, version].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " "), destination: URL(string: project)!)
                 .fontWeight(.medium)
-            Text(detail).foregroundStyle(.secondary)
+            Text(credit).foregroundStyle(.secondary)
         }
     }
 }

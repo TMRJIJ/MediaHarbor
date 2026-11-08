@@ -16,7 +16,7 @@ Open **Help → Media Harbor Help** for instructions in the app. The **Support**
    - **URL List** accepts one HTTP or HTTPS link per line. Paste a list or import a UTF-8 text file.
    - **Image Search** opens Bing, Google, Yandex, DuckDuckGo, or Yahoo Images. On Google, open an image result and use **Scan Page** to collect the image exposed in the preview.
 3. In **Downloads**, projects start collapsed. Expand a project to see file types, statuses, and previews. Use **Start Project** to run its waiting or paused files, or **Retry Project** for its failed files. Active projects show progress. The project’s globe button reopens the source in Site Browser.
-4. In **Gallery**, open an image for a larger preview, choose **Slideshow** for images, or click a video to play it. If the built-in player cannot play the file, choose **Open in Default Player**. Use a media item’s menu to move it to Trash. Files deleted or moved in Finder drop out of the Gallery automatically.
+4. In **Gallery**, move the pointer across a project thumbnail to preview its images, then click to open the project. Choose **Slideshow** for images or click a video to play it. If the built-in player cannot play the file, choose **Open in Default Player**. Use a media item’s menu to move it to Trash. Files deleted or moved in Finder drop out of the Gallery automatically.
 
 The project’s actions menu can compress saved files to a ZIP, remove the project from the queue while keeping its saved files, or move its saved files to Trash and remove the project. **Clear Queue** removes all queue entries and keeps saved files. Completed image rows have thumbnails, and **Preview** opens saved files with Quick Look.
 
@@ -61,6 +61,8 @@ Linked single images use the original page or thread for folder naming. A linked
 ## gallery-dl templates and authentication
 
 Open **Templates → gallery-dl Sites** to browse 298 site templates with example URL formats. On supported pages, Media Harbor runs gallery-dl first and shows its discovered files in the regular review panel. The browser scanner handles other pages and can help when gallery-dl finds nothing. Use **Web Rules** to edit the built-in browser rules or create a CSS template that takes priority over gallery-dl. For example, `article img, article a[download]` finds images and attachment links inside article elements.
+
+Open a gallery-dl or yt-dlp site template and select **Create Web Rule** to start an editable rule for its hostname. Matching built-in browser rules supply their selectors and settings. You can also duplicate an existing custom rule from its context menu.
 
 Open **Templates → Authentication** to manage access.
 

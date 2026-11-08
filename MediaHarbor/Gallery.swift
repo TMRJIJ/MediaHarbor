@@ -26,6 +26,7 @@ struct GalleryView: View {
 
     let transfers: Transfers
     @State private var filter = Filter.all
+    @State private var selectedProject: URL?
     @State private var viewer: ViewerSelection?
     @State private var video: Transfer?
     @State private var missingFiles: Set<URL>?
@@ -33,57 +34,45 @@ struct GalleryView: View {
     @State private var trashError: String?
 
     var body: some View {
-        let items = transfers.galleryMedia.filter {
-            filter.includes($0) && $0.output.map { missingFiles?.contains($0) == false } == true
+        let available = transfers.galleryMedia.filter {
+            $0.output.map { missingFiles?.contains($0) == false } == true
         }
-        let photos = items.filter { $0.kind == .image }
+        let names = transfers.projectNamesForQueue()
+        let grouped = Dictionary(grouping: available, by: \.media.projectSource)
+        var seen: Set<URL> = []
+        let projects = available.compactMap { item -> GalleryProject? in
+            let source = item.media.projectSource
+            guard seen.insert(source).inserted, let items = grouped[source] else { return nil }
+            return GalleryProject(id: source, name: names[source] ?? item.projectName ?? transfers.folderRule.projectName(for: item.media), items: items)
+        }
+        let project = projects.first { $0.id == selectedProject }
+
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .bottom) {
-                PageHeading(title: "Media gallery", detail: "Browse downloaded images and play saved videos.")
-                Button {
-                    viewer = ViewerSelection(photos: photos, index: 0, playing: true)
-                } label: {
-                    Label("Slideshow", systemImage: "play.fill")
-                }
-                .buttonStyle(.glassProminent)
-                .help("Play downloaded images in order")
-                .disabled(photos.isEmpty)
-            }
-            .padding(.horizontal, 26)
-            Picker("Show media", selection: $filter) {
-                ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .fixedSize()
-            .padding(.horizontal, 26)
             if let trashError {
                 Label(trashError, systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.red).padding(.horizontal, 26)
             }
-            if missingFiles == nil {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if items.isEmpty {
-                ContentUnavailableView("No downloaded media", systemImage: "photo.on.rectangle.angled",
-                                       description: Text("Saved images and videos appear here after download."))
-                    .frame(maxHeight: .infinity)
+            if let project {
+                projectMedia(project)
             } else {
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: 14)], spacing: 18) {
-                        ForEach(items) { item in
-                            if let url = item.output {
-                                card(item, at: url) {
-                                    if item.kind == .video {
-                                        video = item
-                                    } else if let index = photos.firstIndex(where: { $0.id == item.id }) {
-                                        viewer = ViewerSelection(photos: photos, index: index)
-                                    }
-                                }
+                PageHeading(title: "Gallery Projects", detail: "Move across a project’s thumbnail to preview its images.")
+                    .padding(.horizontal, 26)
+                if missingFiles == nil {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if projects.isEmpty {
+                    ContentUnavailableView("No downloaded media", systemImage: "photo.on.rectangle.angled",
+                                           description: Text("Saved images and videos appear here after download."))
+                        .frame(maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 210), spacing: 18)], spacing: 22) {
+                            ForEach(projects) { project in
+                                projectCard(project)
                             }
                         }
+                        .padding(.horizontal, 26)
+                        .padding(.bottom, 20)
                     }
-                    .padding(.horizontal, 26)
-                    .padding(.bottom, 20)
                 }
             }
         }
@@ -117,6 +106,95 @@ struct GalleryView: View {
             switch target {
             case .file(let url): Text(url.lastPathComponent)
             case .project: Text("This also removes the project from the download queue.")
+            }
+        }
+    }
+
+    private func projectCard(_ project: GalleryProject) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                filter = .all
+                selectedProject = project.id
+            } label: {
+                ProjectThumbnail(previews: project.previews)
+                    .frame(height: 132)
+                    .background(.quaternary.opacity(0.45))
+                    .clipShape(.rect(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open \(project.name), \(project.items.count.formatted()) files")
+            .help("Open project")
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(project.name).font(.callout.weight(.semibold)).lineLimit(1)
+                    Text("\(project.items.count.formatted()) saved files").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Menu {
+                    Button("Move Project to Trash…", role: .destructive) { pendingTrash = .project(project.id) }
+                        .disabled(!transfers.canTrashProject(project.id))
+                } label: {
+                    Label("Project Actions", systemImage: "ellipsis.circle")
+                }
+                .labelStyle(.iconOnly)
+                .menuIndicator(.hidden)
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+        }
+    }
+
+    private func projectMedia(_ project: GalleryProject) -> some View {
+        let items = project.items.filter(filter.includes)
+        let photos = items.filter { $0.kind == .image }
+        return VStack(alignment: .leading, spacing: 16) {
+            Button {
+                selectedProject = nil
+            } label: {
+                Label("All Projects", systemImage: "chevron.left")
+            }
+            .buttonStyle(.glass)
+            .padding(.horizontal, 26)
+            HStack(alignment: .bottom) {
+                PageHeading(title: project.name, detail: "Browse saved images and videos in this project.")
+                Button {
+                    viewer = ViewerSelection(photos: photos, index: 0, playing: true)
+                } label: {
+                    Label("Slideshow", systemImage: "play.fill")
+                }
+                .buttonStyle(.glassProminent)
+                .help("Play this project’s images in order")
+                .disabled(photos.isEmpty)
+            }
+            .padding(.horizontal, 26)
+            Picker("Show media", selection: $filter) {
+                ForEach(Filter.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .fixedSize()
+            .padding(.horizontal, 26)
+            if items.isEmpty {
+                ContentUnavailableView("No \(filter.rawValue.lowercased()) in this project", systemImage: "photo.on.rectangle.angled")
+                    .frame(maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: 14)], spacing: 18) {
+                        ForEach(items) { item in
+                            if let url = item.output {
+                                card(item, at: url) {
+                                    if item.kind == .video {
+                                        video = item
+                                    } else if let index = photos.firstIndex(where: { $0.id == item.id }) {
+                                        viewer = ViewerSelection(photos: photos, index: index)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 26)
+                    .padding(.bottom, 20)
+                }
             }
         }
     }
@@ -156,6 +234,55 @@ struct GalleryView: View {
                 .fixedSize()
             }
         }
+    }
+}
+
+private struct GalleryProject: Identifiable {
+    let id: URL
+    let name: String
+    let items: [Transfer]
+
+    var previews: [Transfer] {
+        let images = items.filter { $0.kind == .image }
+        let candidates = images.isEmpty ? items : images
+        let count = min(candidates.count, 12)
+        guard count > 1 else { return candidates }
+        return (0..<count).map { candidates[$0 * (candidates.count - 1) / (count - 1)] }
+    }
+}
+
+private struct ProjectThumbnail: View {
+    let previews: [Transfer]
+    @State private var index = 0
+
+    var body: some View {
+        GeometryReader { proxy in
+            Group {
+                if let item = previews.indices.contains(index) ? previews[index] : previews.first,
+                   let url = item.output {
+                    if item.kind == .video {
+                        VideoThumbnail(url: url)
+                    } else {
+                        LocalImage(url: url, pixels: 560, fill: true)
+                    }
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
+            .contentShape(.rect)
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let point) where proxy.size.width > 0 && !previews.isEmpty:
+                    let fraction = min(1, max(0, point.x / proxy.size.width))
+                    index = min(previews.count - 1, Int(fraction * CGFloat(previews.count)))
+                case .ended:
+                    index = 0
+                default:
+                    break
+                }
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -290,13 +417,14 @@ private struct ImageViewer: View {
 struct LocalImage: View {
     let url: URL
     let pixels: Int
+    var fill = false
     @State private var bitmap: CGImage?
     @State private var finished = false
 
     var body: some View {
         Group {
             if let bitmap {
-                Image(decorative: bitmap, scale: 1).resizable().scaledToFit()
+                Image(decorative: bitmap, scale: 1).resizable().aspectRatio(contentMode: fill ? .fill : .fit)
             } else if finished {
                 Image(systemName: "photo.badge.exclamationmark").foregroundStyle(.secondary)
                     .help("Image unavailable")

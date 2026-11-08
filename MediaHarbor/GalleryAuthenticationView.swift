@@ -5,9 +5,10 @@ import UniformTypeIdentifiers
 struct GallerySiteDetail: View {
     let site: GallerySite
     let open: (URL) -> Void
+    let createRule: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var address = ""
-    @State private var invalid = false
+    @State private var error: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 15) {
@@ -33,8 +34,11 @@ struct GallerySiteDetail: View {
             TextField("Paste a \(site.name) URL", text: $address)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(submit)
-            if invalid { Text("Enter a valid website URL.").foregroundStyle(.red) }
+                .onChange(of: address) { error = nil }
+            if let error { Text(error).foregroundStyle(.red) }
             HStack {
+                Button("Create Web Rule…", action: makeRule)
+                    .help("Use a supported hostname to start an editable browser rule")
                 Spacer()
                 Button("Close", role: .cancel) { dismiss() }
                 Button("Open and Scan", action: submit)
@@ -48,11 +52,31 @@ struct GallerySiteDetail: View {
 
     private func submit() {
         guard let url = URL.web(address, assumingHTTPS: true) else {
-            invalid = true
+            error = "Enter a valid website URL."
             return
         }
         dismiss()
         open(url)
+    }
+
+    private func makeRule() {
+        let input = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        let example = site.examples["video"] ?? site.examples["post"] ?? site.examples["thread"]
+            ?? site.examples["tweet"] ?? site.examples["image"]
+            ?? site.examples.sorted { $0.key < $1.key }.first?.value
+        let source = input.isEmpty ? (example ?? site.hosts.first) : input
+        guard let source, let host = URL.web(source, assumingHTTPS: true)?.host?.lowercased() else {
+            error = "Enter a supported website URL for this rule."
+            return
+        }
+        let matchingHost = site.hosts.filter { host == $0 || host.hasSuffix("." + $0) }
+            .max { $0.count < $1.count }
+        guard matchingHost != nil || site.hosts.isEmpty else {
+            error = "Use a URL from one of this template’s supported domains."
+            return
+        }
+        createRule(matchingHost ?? host)
+        dismiss()
     }
 }
 
