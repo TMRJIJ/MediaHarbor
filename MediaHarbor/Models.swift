@@ -205,5 +205,8 @@ struct Transfer: Codable, Identifiable {
     var canRetry: Bool { [.queued, .failed, .paused, .retrying].contains(status) }
     var name: String { output?.lastPathComponent ?? media.name }
     var fraction: Double? { expected > 0 ? min(1, Double(received) / Double(expected)) : nil }
-    var kind: MediaKind { output.flatMap(MediaKind.detect) ?? (media.streamFormat == nil ? media.kind : .video) }
+    var kind: MediaKind {
+        if let detected = output.flatMap(MediaKind.detect), detected != .file { return detected }
+        return media.streamFormat == nil ? media.kind : .video
+    }
 }

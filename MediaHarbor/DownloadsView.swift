@@ -148,15 +148,46 @@ struct QueueView: View {
         case project(URL), file(UUID)
     }
 
+    private enum QueueAction {
+        case remove(URL), trashProject(URL), trashFile(URL)
+
+        var title: String {
+            switch self {
+            case .remove: "Remove this project from the queue?"
+            case .trashProject: "Move this project’s saved files to Trash?"
+            case .trashFile: "Move this file to Trash?"
+            }
+        }
+
+        var message: String {
+            switch self {
+            case .remove: "Active transfers will be canceled. Saved files will be kept."
+            case .trashProject: "This removes the project from the queue and moves its saved files to Trash."
+            case .trashFile: "This removes the saved file from the queue and Gallery."
+            }
+        }
+
+        var actionLabel: String {
+            if case .remove = self { return "Remove Project" }
+            return "Move to Trash"
+        }
+    }
+
     let transfers: Transfers
     let browser: SiteBrowser
     let add: (SourceMode) -> Void
     let openProject: (URL) -> Void
     @State private var filter = QueueFilter.all
     @State private var selection: Selection?
-    @State private var collapsed: Set<URL> = []
+    @State private var expanded: Set<URL> = []
     @State private var previewURL: URL?
     @State private var confirmClear = false
+    @State private var pendingAction: QueueAction?
+    @State private var actionError: String?
+    @State private var archiving: Set<URL> = []
+    private let typeWidth: CGFloat = 78
+    private let statusWidth: CGFloat = 110
+    private let actionsWidth: CGFloat = 54
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -164,6 +195,10 @@ struct QueueView: View {
                 .padding(.horizontal, 26)
             if let error = transfers.storageError {
                 Label(error, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.red).padding(.horizontal, 26)
+            }
+            if let actionError {
+                Label(actionError, systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.red).padding(.horizontal, 26)
             }
             if transfers.items.isEmpty {
@@ -178,10 +213,20 @@ struct QueueView: View {
             Button("Clear Queue", role: .destructive) {
                 transfers.clearQueue()
                 selection = nil
-                collapsed.removeAll()
+                expanded.removeAll()
             }
         } message: {
-            Text("This cancels active downloads and removes all queue entries. Downloaded files and gallery images are kept.")
+            Text("This cancels active downloads and removes all queue entries. Saved files and Gallery items are kept.")
+        }
+        .alert(pendingAction?.title ?? "", isPresented: Binding(get: { pendingAction != nil }, set: {
+            if !$0 { pendingAction = nil }
+        }), presenting: pendingAction) { action in
+            Button("Cancel", role: .cancel) {}
+            Button(action.actionLabel, role: .destructive) {
+                perform(action)
+            }
+        } message: { action in
+            Text(action.message)
         }
         .quickLookPreview($previewURL)
     }
@@ -255,9 +300,10 @@ struct QueueView: View {
             } else {
                 List(selection: $selection) {
                     ForEach(projectOrder, id: \.self) { source in
-                        DisclosureGroup(isExpanded: Binding(get: { !collapsed.contains(source) }, set: { expanded in
-                            if expanded { collapsed.remove(source) } else { collapsed.insert(source) }
+                        DisclosureGroup(isExpanded: Binding(get: { expanded.contains(source) }, set: { isExpanded in
+                            if isExpanded { expanded.insert(source) } else { expanded.remove(source) }
                         })) {
+                            fileHeading
                             ForEach(visibleProjects[source, default: []]) { transfer in
                                 row(transfer)
                                     .tag(Selection.file(transfer.id))
@@ -276,31 +322,123 @@ struct QueueView: View {
     }
 
     private func projectRow(_ source: URL, name: String, items: [Transfer]) -> some View {
-        let retryable = items.filter { $0.canRetry && ($0.status != .queued || transfers.needsStart($0)) }
+        let startable = items.filter(transfers.canStartInProject)
+        let retryable = items.filter { [.failed, .retrying].contains($0.status) }
+        let active = items.filter { $0.status == .downloading }
+        let completed = items.filter { $0.status == .complete }.count
+        let hasSavedFiles = !transfers.savedProjectFiles(source).isEmpty
+        let progress = (Double(completed) + active.compactMap(\.fraction).reduce(0, +)) / Double(max(1, items.count))
         return HStack {
             VStack(alignment: .leading, spacing: 4) {
                 Text(name).font(.headline).lineLimit(1)
-                Text("\(items.count.formatted()) files · \(source.host ?? source.absoluteString)")
+                Text("\(completed.formatted()) of \(items.count.formatted()) complete · \(source.host ?? source.absoluteString)")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             .help(source.absoluteString)
             Spacer()
+            if !active.isEmpty {
+                Group {
+                    if active.contains(where: { $0.fraction == nil }) {
+                        ProgressView()
+                    } else {
+                        ProgressView(value: progress)
+                    }
+                }
+                .progressViewStyle(.linear)
+                .frame(width: 105)
+                .accessibilityLabel("Project download progress")
+            }
             Button { openProject(source) } label: { Label("Open in Site Browser", systemImage: "globe") }
                 .help("Return to the link for this project")
             Button {
                 Task {
+                    await browser.syncCookies(for: startable.map(\.media.url))
+                    transfers.startProject(source)
+                }
+            } label: {
+                Label("Start Project", systemImage: "play.fill")
+            }
+            .help("Start or resume this project’s waiting files")
+            .disabled(startable.isEmpty)
+            Button {
+                Task {
                     await browser.syncCookies(for: retryable.map(\.media.url))
-                    transfers.retry(Set(retryable.map(\.id)))
+                    transfers.retryProject(source)
                 }
             } label: {
                 Label("Retry project", systemImage: "arrow.clockwise")
             }
-            .help("Retry failed or paused files and start waiting files in this project")
-            .disabled(retryable.isEmpty || transfers.isPaused)
+            .help("Retry this project’s failed or interrupted downloads")
+            .disabled(retryable.isEmpty)
+            Menu {
+                Button("Compress Project…") { compressProject(source, name: name) }
+                    .disabled(archiving.contains(source) || !hasSavedFiles)
+                Button("Remove Project from Queue…") { pendingAction = .remove(source) }
+                Button("Move Project to Trash…", role: .destructive) { pendingAction = .trashProject(source) }
+                    .disabled(!hasSavedFiles || !transfers.canTrashProject(source) || archiving.contains(source))
+            } label: {
+                Label("Project Actions", systemImage: "ellipsis.circle")
+            }
+            .menuIndicator(.hidden)
+            .help("Compress, remove, or delete this project")
+            if archiving.contains(source) {
+                ProgressView().controlSize(.small).accessibilityLabel("Compressing project")
+            }
         }
         .labelStyle(.iconOnly)
         .buttonStyle(.borderless)
         .padding(.vertical, 4)
+    }
+
+    private var fileHeading: some View {
+        HStack(spacing: 12) {
+            Text("File")
+            Spacer(minLength: 10)
+            Text("File Type").frame(width: typeWidth, alignment: .leading)
+            Text("Status").frame(width: statusWidth, alignment: .trailing)
+            Color.clear.frame(width: actionsWidth, height: 1)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private func perform(_ action: QueueAction) {
+        actionError = nil
+        switch action {
+        case .remove(let source):
+            transfers.removeProject(source)
+            expanded.remove(source)
+            selection = nil
+        case .trashProject(let source):
+            actionError = transfers.trashProject(source)
+            expanded.remove(source)
+            selection = nil
+        case .trashFile(let url):
+            if previewURL == url { previewURL = nil }
+            actionError = transfers.trashSavedFile(url)
+        }
+    }
+
+    private func compressProject(_ source: URL, name: String) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.zip]
+        panel.nameFieldStringValue = name + ".zip"
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        let files = transfers.savedProjectFiles(source)
+        actionError = nil
+        archiving.insert(source)
+        Task {
+            defer { archiving.remove(source) }
+            do {
+                try await Task.detached(priority: .utility) {
+                    try ProjectArchive.write(files, to: destination)
+                }.value
+                NSWorkspace.shared.activateFileViewerSelecting([destination])
+            } catch {
+                actionError = error.localizedDescription
+            }
+        }
     }
 
     private func metric(_ title: String, _ count: Int, _ icon: String) -> some View {
@@ -341,6 +479,13 @@ struct QueueView: View {
                     .help(transfer.error ?? transfer.media.url.absoluteString)
             }
             Spacer(minLength: 10)
+            let fileExtension = (transfer.output ?? transfer.media.url).pathExtension
+            Text(fileExtension.isEmpty || transfer.media.videoPage == true && transfer.output == nil
+                 ? transfer.kind.rawValue : fileExtension.uppercased())
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(width: typeWidth, alignment: .leading)
             VStack(alignment: .trailing, spacing: 4) {
                 Text(transfers.finalizingVideos.contains(transfer.id) ? "Saving video" : transfer.status.rawValue)
                     .font(.caption.weight(.medium)).foregroundStyle(.secondary)
@@ -359,11 +504,11 @@ struct QueueView: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
-            .frame(width: 110, alignment: .trailing)
+            .frame(width: statusWidth, alignment: .trailing)
             HStack(spacing: 10) { actions(transfer, menu: false) }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
-                .frame(width: 54, alignment: .trailing)
+                .frame(width: actionsWidth, alignment: .trailing)
         }
         .padding(.vertical, 5)
     }
@@ -381,7 +526,10 @@ struct QueueView: View {
                     Label("Show in Finder", systemImage: "folder")
                 }
                 .help("Show in Finder")
-                if menu { Button("Open File") { NSWorkspace.shared.open(output) } }
+                if menu {
+                    Button("Open File") { NSWorkspace.shared.open(output) }
+                    Button("Move File to Trash…", role: .destructive) { pendingAction = .trashFile(output) }
+                }
             }
         case .queued where transfers.needsStart(transfer):
             Button { transfers.retry(transfer.id) } label: {
@@ -420,6 +568,62 @@ struct QueueView: View {
                 NSPasteboard.general.setString(transfer.media.url.absoluteString, forType: .string)
             }
             Button("Remove from Queue", role: .destructive) { transfers.remove(transfer.id) }
+        }
+    }
+}
+
+enum ProjectArchive {
+    nonisolated static func write(_ sources: [URL], to destination: URL) throws {
+        let files = FileManager.default
+        let available = sources.filter {
+            $0.isFileURL && (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+        }
+        guard !available.isEmpty else { throw Failure.noFiles }
+        let outputPath = destination.resolvingSymlinksInPath().standardizedFileURL
+        guard !sources.contains(where: { $0.resolvingSymlinksInPath().standardizedFileURL == outputPath }) else {
+            throw Failure.overwritesInput
+        }
+        let work = try files.url(for: .itemReplacementDirectory, in: .userDomainMask,
+                                 appropriateFor: destination.deletingLastPathComponent(), create: true)
+        defer { try? files.removeItem(at: work) }
+        let contents = work.appending(path: "Files", directoryHint: .isDirectory)
+        let archive = work.appending(path: "Project.zip")
+        try files.createDirectory(at: contents, withIntermediateDirectories: false)
+        for source in available {
+            let extensionName = source.pathExtension
+            let suffix = extensionName.isEmpty ? "" : "." + extensionName
+            let name = source.deletingPathExtension().lastPathComponent
+            var target = contents.appending(component: source.lastPathComponent)
+            var copy = 2
+            while files.fileExists(atPath: target.path) {
+                target = contents.appending(component: "\(name) (\(copy))\(suffix)")
+                copy += 1
+            }
+            do { try files.linkItem(at: source, to: target) }
+            catch { try files.copyItem(at: source, to: target) }
+        }
+        let process = Process()
+        process.executableURL = URL(filePath: "/usr/bin/ditto")
+        process.arguments = ["-c", "-k", "--norsrc", "--noextattr", contents.path, archive.path]
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { throw Failure.compression }
+        if files.fileExists(atPath: destination.path) {
+            _ = try files.replaceItemAt(destination, withItemAt: archive)
+        } else {
+            try files.moveItem(at: archive, to: destination)
+        }
+    }
+
+    private enum Failure: LocalizedError {
+        case noFiles, overwritesInput, compression
+
+        var errorDescription: String? {
+            switch self {
+            case .noFiles: "No saved project files are available to compress."
+            case .overwritesInput: "Choose a ZIP location different from the project’s saved files."
+            case .compression: "The project could not be compressed."
+            }
         }
     }
 }

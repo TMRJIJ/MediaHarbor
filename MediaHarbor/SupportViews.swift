@@ -24,12 +24,12 @@ struct HelpView: View {
                     Text("Paste an HLS (.m3u8) or DASH (.mpd) playlist into URL List to download it with FFmpeg. Use Stop & Save to keep a live recording. Resuming a paused live stream starts a new recording.")
                 }
                 topic("Manage the queue and saved files", icon: "arrow.down.circle") {
-                    Text("In Downloads, expand a project to see its files. Use the globe to reopen the source in Site Browser, or use Retry Project to retry unfinished files. Select Preview beside a saved file to open it in Quick Look.")
-                    Text("Clear Queue cancels active transfers and keeps files you already saved.")
+                    Text("In Downloads, expand a project to see its files and their types. Use Start Project for its waiting files, Retry Project for failures, or the globe to reopen the source.")
+                    Text("Use the project’s menu to make a ZIP of its saved files, remove it from the queue, or move its files to Trash. Select Preview beside a saved file to open it in Quick Look.")
                     Text("Open Settings (⌘,) to set the save folder, folder naming, simultaneous downloads, retries, and automatic start. If automatic start is off, click Start Queue or start individual files.")
                 }
-                topic("View downloaded images", icon: "photo.on.rectangle.angled") {
-                    Text("Open Gallery and select a thumbnail to preview it. Use the arrow keys to browse, or choose Slideshow to advance automatically.")
+                topic("View downloaded media", icon: "photo.on.rectangle.angled") {
+                    Text("Open Gallery and select a thumbnail to preview an image or play a video. Use Slideshow for images. Use an item’s menu to move it to Trash.")
                 }
                 topic("Update the app and dependencies", icon: "arrow.trianglehead.clockwise") {
                     Text("In Settings, Check for Updates finds signed releases, including their bundled dependencies. You can also opt in to installation at launch when the app is idle.")

@@ -15,8 +15,10 @@ Open **Help → Media Harbor Help** for instructions in the app. The **Support**
    - **Website** shows a recommended template as you enter or paste a link. **Open and Scan** opens the page in Site Browser and looks for files. Review the results, select the file types you want, and click **Queue**. Enable automatic queueing to download the first scan's results immediately.
    - **URL List** accepts one HTTP or HTTPS link per line. Paste a list or import a UTF-8 text file.
    - **Image Search** opens Bing, Google, Yandex, DuckDuckGo, or Yahoo Images. On Google, open an image result and use **Scan Page** to collect the image exposed in the preview.
-3. In **Downloads**, files are grouped under the website or direct link that started the project. Expand a project to see its files. Use its globe button to reopen the source in Site Browser, or its retry button to retry failed or paused files and start files waiting for approval. Completed image rows show thumbnails, and **Preview** opens saved files in Quick Look. **Clear Queue** cancels active downloads and clears the list while keeping saved files and gallery images.
-4. In **Gallery**, click a thumbnail to preview it or choose **Slideshow** to advance through the images every three seconds.
+3. In **Downloads**, projects start collapsed. Expand a project to see file types, statuses, and previews. Use **Start Project** to run its waiting or paused files, or **Retry Project** for its failed files. Active projects show progress. The project’s globe button reopens the source in Site Browser.
+4. In **Gallery**, open an image for a larger preview, choose **Slideshow** for images, or click a video to play it. If the built-in player cannot play the file, choose **Open in Default Player**. Use a media item’s menu to move it to Trash. Files deleted or moved in Finder drop out of the Gallery automatically.
+
+The project’s actions menu can compress saved files to a ZIP, remove the project from the queue while keeping its saved files, or move its saved files to Trash and remove the project. **Clear Queue** removes all queue entries and keeps saved files. Completed image rows have thumbnails, and **Preview** opens saved files with Quick Look.
 
 Files save to **Downloads/Media Harbor** by default. Failed downloads can be retried from the queue. When a server supplies resumable transfers, pausing saves the partial download for later. Otherwise the next attempt starts at the beginning.
 

@@ -53,7 +53,7 @@ final class Transfers {
     }
 
     private(set) var items: [Transfer] = []
-    private var archivedImages: [Transfer] = []
+    private var archivedMedia: [Transfer] = []
     private(set) var isPaused = false
     private(set) var storageError: String?
     private let stateFile: URL
@@ -65,6 +65,7 @@ final class Transfers {
     private(set) var finalizingVideos: Set<UUID> = []
     private var pausing: [UUID: PauseRequest] = [:]
     private var approved: Set<UUID> = []
+    private var runningWhilePaused: Set<UUID> = []
     private var privateHeaders: [URL: [String: String]] = [:]
     private var privateStreamCookies: [URL: [StreamCookie]] = [:]
     private var timer: Timer?
@@ -111,12 +112,17 @@ final class Transfers {
         do {
             let state = try JSONDecoder().decode(State.self, from: Data(contentsOf: self.stateFile))
             isPaused = state.paused
-            archivedImages = state.archivedImages ?? []
+            archivedMedia = state.archivedMedia ?? state.archivedImages ?? []
             items = state.items.map { item in
                 var item = item
                 if item.status == .downloading { item.status = state.paused ? .paused : .queued }
                 return item
             }
+            var knownOutputs: Set<URL> = []
+            items = Array(items.reversed().filter { $0.output.map { knownOutputs.insert($0).inserted } ?? true }.reversed())
+            archivedMedia = Array(archivedMedia.reversed().filter {
+                $0.output.map { knownOutputs.insert($0).inserted } ?? false
+            }.reversed())
         } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError {
             // A new installation starts with an empty queue.
         } catch {
@@ -170,6 +176,7 @@ final class Transfers {
 
     func togglePause() {
         isPaused.toggle()
+        runningWhilePaused.removeAll()
         if isPaused {
             for index in items.indices where [.queued, .retrying].contains(items[index].status) {
                 items[index].status = .paused
@@ -196,12 +203,32 @@ final class Transfers {
         !autoStart && [.queued, .retrying].contains(item.status) && !approved.contains(item.id)
     }
 
-    var galleryImages: [Transfer] {
-        archivedImages + items.filter { $0.status == .complete && $0.kind == .image && $0.output != nil }
+    var galleryMedia: [Transfer] {
+        (archivedMedia + items).filter {
+            $0.status == .complete && $0.output != nil && ($0.kind == .image || $0.kind == .video)
+        }
     }
 
     func startQueue() {
         approved.formUnion(items.lazy.filter { [.queued, .retrying].contains($0.status) }.map(\.id))
+        schedule()
+    }
+
+    func canStartInProject(_ item: Transfer) -> Bool {
+        item.status == .paused || (item.status == .queued &&
+            (needsStart(item) || isPaused && !runningWhilePaused.contains(item.id)))
+    }
+
+    func startProject(_ source: URL) {
+        for index in items.indices where items[index].media.projectSource == source && canStartInProject(items[index]) {
+            let id = items[index].id
+            items[index].status = .queued
+            items[index].manuallyPaused = false
+            items[index].retryDate = nil
+            approved.insert(id)
+            if isPaused { runningWhilePaused.insert(id) }
+        }
+        save()
         schedule()
     }
 
@@ -211,6 +238,7 @@ final class Transfers {
               [.downloading, .queued, .retrying].contains(items[index].status) else { return }
         items[index].status = .paused
         items[index].manuallyPaused = manually
+        runningWhilePaused.remove(id)
         if let stream = videoTasks[id] {
             stoppedVideos.insert(id)
             stream.cancel()
@@ -233,11 +261,17 @@ final class Transfers {
         retry([id])
     }
 
-    func retry(_ ids: Set<UUID>) {
+    func retryProject(_ source: URL) {
+        let ids = Set(items.lazy.filter { $0.media.projectSource == source && [.failed, .retrying].contains($0.status) }.map(\.id))
+        if isPaused { runningWhilePaused.formUnion(ids) }
+        retry(ids)
+    }
+
+    private func retry(_ ids: Set<UUID>) {
         var changed = false
         for index in items.indices where ids.contains(items[index].id) && items[index].canRetry {
             if !autoStart { approved.insert(items[index].id) }
-            items[index].status = isPaused ? .paused : .queued
+            items[index].status = isPaused && !runningWhilePaused.contains(items[index].id) ? .paused : .queued
             items[index].manuallyPaused = false
             items[index].attempts = 0
             items[index].error = nil
@@ -250,23 +284,97 @@ final class Transfers {
     }
 
     func remove(_ id: UUID) {
-        if let item = items.first(where: { $0.id == id }) {
+        removeItems([id])
+    }
+
+    func removeProject(_ source: URL) {
+        removeItems(Set(items.lazy.filter { $0.media.projectSource == source }.map(\.id)))
+    }
+
+    private func removeItems(_ ids: Set<UUID>, preservingMedia: Bool = true) {
+        let removed = items.filter { ids.contains($0.id) }
+        guard !removed.isEmpty else { return }
+        if preservingMedia { archive(removed) }
+        items.removeAll { ids.contains($0.id) }
+        for item in removed {
+            let id = item.id
             privateHeaders[item.media.url] = nil
             privateStreamCookies[item.media.url] = nil
+            tasks.removeValue(forKey: id)?.cancel()
+            videoTasks.removeValue(forKey: id)?.cancel()
+            stoppedVideos.remove(id)
+            finalizingVideos.remove(id)
+            pausing[id] = nil
+            approved.remove(id)
+            runningWhilePaused.remove(id)
         }
-        tasks.removeValue(forKey: id)?.cancel()
-        videoTasks.removeValue(forKey: id)?.cancel()
-        stoppedVideos.remove(id)
-        finalizingVideos.remove(id)
-        pausing[id] = nil
-        approved.remove(id)
-        items.removeAll { $0.id == id }
         save()
         schedule()
     }
 
+    private func archive(_ removed: [Transfer]) {
+        archivedMedia.append(contentsOf: removed.filter { $0.status == .complete && $0.output != nil })
+    }
+
+    func savedProjectFiles(_ source: URL) -> [URL] {
+        var seen: Set<URL> = []
+        return (items + archivedMedia).lazy.filter { $0.media.projectSource == source && $0.status == .complete }
+            .compactMap(\.output).filter { seen.insert($0).inserted }
+    }
+
+    func canTrashProject(_ source: URL) -> Bool {
+        !items.contains { item in
+            item.media.projectSource == source && (tasks[item.id] != nil || videoTasks[item.id] != nil)
+        }
+    }
+
+    func trashProject(_ source: URL) -> String? {
+        guard canTrashProject(source) else { return "Pause or finish this project’s downloads before moving it to Trash." }
+        let urls = Set(savedProjectFiles(source))
+        let failed = trashFiles(urls)
+        let projectItems = Set(items.lazy.filter { item in
+            item.media.projectSource == source && item.output.map { !failed.contains($0) } != false
+        }.map(\.id))
+        discardTrashedFiles(urls.subtracting(failed), removing: projectItems)
+        return failed.isEmpty ? nil : "Could not move \(failed.count.formatted()) project files to Trash."
+    }
+
+    func trashSavedFile(_ url: URL) -> String? {
+        guard (items + archivedMedia).contains(where: { $0.status == .complete && $0.output == url }) else { return nil }
+        guard trashFiles([url]).isEmpty else { return "Could not move \(url.lastPathComponent) to Trash." }
+        discardTrashedFiles([url])
+        return nil
+    }
+
+    private func trashFiles(_ urls: Set<URL>) -> Set<URL> {
+        var failed: Set<URL> = []
+        for url in urls {
+            do {
+                let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+                guard url.isFileURL, values.isRegularFile == true else {
+                    failed.insert(url)
+                    continue
+                }
+                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            } catch let error as NSError where error.domain == NSCocoaErrorDomain &&
+                [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(error.code) {
+                continue
+            } catch {
+                failed.insert(url)
+            }
+        }
+        return failed
+    }
+
+    private func discardTrashedFiles(_ trashed: Set<URL>, removing otherIDs: Set<UUID> = []) {
+        archivedMedia.removeAll { $0.output.map(trashed.contains) == true }
+        let removed = Set(items.lazy.filter { $0.status == .complete && $0.output.map(trashed.contains) == true }.map(\.id))
+        let ids = removed.union(otherIDs)
+        if ids.isEmpty { save() } else { removeItems(ids, preservingMedia: false) }
+    }
+
     func clearQueue() {
-        archivedImages = galleryImages
+        archive(items)
         let active = Array(tasks.values)
         stopVideoTasks()
         items.removeAll()
@@ -276,6 +384,7 @@ final class Transfers {
         finalizingVideos.removeAll()
         pausing.removeAll()
         approved.removeAll()
+        runningWhilePaused.removeAll()
         privateHeaders.removeAll()
         privateStreamCookies.removeAll()
         isPaused = false
@@ -313,12 +422,13 @@ final class Transfers {
     }
 
     private func schedule() {
-        guard !isPaused, tasks.count + videoTasks.count < connections else { return }
+        guard !isPaused || !runningWhilePaused.isEmpty, tasks.count + videoTasks.count < connections else { return }
         let now = Date()
         for index in items.indices {
             guard tasks.count + videoTasks.count < connections else { break }
             let item = items[index]
-            guard tasks[item.id] == nil, videoTasks[item.id] == nil, autoStart || approved.contains(item.id),
+            guard !isPaused || runningWhilePaused.contains(item.id),
+                  tasks[item.id] == nil, videoTasks[item.id] == nil, autoStart || approved.contains(item.id),
                   item.status == .queued ||
                     (item.status == .retrying && (item.retryDate ?? .distantPast) <= now) else { continue }
             start(index)
@@ -549,9 +659,10 @@ final class Transfers {
             items[index].media.stream = stream
             items[index].media.kind = .video
             items[index].resumeData = nil
-            items[index].status = isPaused ? .paused : .queued
+            items[index].status = isPaused && !runningWhilePaused.contains(id) ? .paused : .queued
         } else if let output = result.output {
             approved.remove(id)
+            runningWhilePaused.remove(id)
             privateHeaders[items[index].media.url] = nil
             privateStreamCookies[items[index].media.url] = nil
             items[index].status = .complete
@@ -561,6 +672,8 @@ final class Transfers {
                 items[index].received = Int64(size)
                 items[index].expected = Int64(size)
             }
+            archivedMedia.removeAll { $0.output == output }
+            items.removeAll { $0.id != id && $0.status == .complete && $0.output == output }
         } else {
             items[index].error = result.error
             items[index].resumeData = result.resumeData
@@ -570,6 +683,7 @@ final class Transfers {
                 items[index].retryDate = Date().addingTimeInterval(pow(2, Double(items[index].attempts)))
             } else {
                 approved.remove(id)
+                runningWhilePaused.remove(id)
                 items[index].status = .failed
             }
         }
@@ -591,6 +705,7 @@ final class Transfers {
         var paused: Bool
         var items: [Transfer]
         var archivedImages: [Transfer]?
+        var archivedMedia: [Transfer]?
     }
 
     private func save() {
@@ -601,7 +716,7 @@ final class Transfers {
                 if privateHeaders[item.media.url] != nil { item.resumeData = nil }
                 return item
             }
-            let data = try JSONEncoder().encode(State(paused: isPaused, items: persistable, archivedImages: archivedImages))
+            let data = try JSONEncoder().encode(State(paused: isPaused, items: persistable, archivedMedia: archivedMedia))
             try data.write(to: stateFile, options: .atomic)
         } catch {
             storageError = "The queue could not be saved. " + error.localizedDescription
