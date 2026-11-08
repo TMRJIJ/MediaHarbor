@@ -17,6 +17,7 @@ struct MediaHarborApp: App {
     @Environment(\.openWindow) private var openWindow
     @State private var transfers: Transfers
     @State private var browser: SiteBrowser
+    @State private var updates = AppUpdates()
 
     init() {
         let transfers = Transfers()
@@ -29,6 +30,7 @@ struct MediaHarborApp: App {
             MainWindow(transfers: transfers, browser: browser)
                 .frame(minWidth: 940, minHeight: 620)
                 .onAppear { lifecycle.transfers = transfers }
+                .task { await updates.checkOnLaunch(canInstall: canInstallUpdate) }
         }
         .defaultSize(width: 1160, height: 740)
         .windowToolbarStyle(.unified)
@@ -52,7 +54,11 @@ struct MediaHarborApp: App {
         }
         .defaultSize(width: 520, height: 530)
 
-        Settings { PreferencesView(transfers: transfers) }
+        Settings { PreferencesView(transfers: transfers, updates: updates, canInstallUpdate: canInstallUpdate) }
+    }
+
+    private func canInstallUpdate() -> Bool {
+        !browser.isLoading && !browser.isScanning && !transfers.hasActiveDownloads
     }
 }
 
@@ -143,7 +149,11 @@ struct MainWindow: View {
         } detail: {
             Group {
                 switch section ?? .downloads {
-                case .downloads: QueueView(transfers: transfers, browser: browser) { sourceMode = $0 }
+                case .downloads:
+                    QueueView(transfers: transfers, browser: browser) { sourceMode = $0 } openProject: { address in
+                        browser.open(address)
+                        section = .browser
+                    }
                 case .browser: BrowserWorkspace(browser: browser) { sourceMode = $0 }
                 case .gallery: GalleryView(transfers: transfers)
                 case .templates:
@@ -229,6 +239,8 @@ struct PageHeading: View {
 
 struct PreferencesView: View {
     @Bindable var transfers: Transfers
+    let updates: AppUpdates
+    let canInstallUpdate: () -> Bool
 
     var body: some View {
         Form {
@@ -257,8 +269,9 @@ struct PreferencesView: View {
                 Text("Title-based folders use the source URL when a title is unavailable.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            UpdateSettings(updates: updates, canInstall: canInstallUpdate)
         }
         .formStyle(.grouped)
-        .frame(width: 470, height: 320)
+        .frame(width: 530, height: 520)
     }
 }

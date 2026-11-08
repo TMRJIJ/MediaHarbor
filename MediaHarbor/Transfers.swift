@@ -148,13 +148,24 @@ final class Transfers {
         privateStreamCookies.merge(streamCookies) { _, new in new }
         var seen = Set(items.map(\.media.url))
         let new = media.filter { seen.insert($0.url).inserted }
+        var projectNames = projectNamesForQueue()
         items.append(contentsOf: new.map {
-            Transfer(media: $0, folder: folderRule.destination(base: folder, media: $0),
-                     status: isPaused ? .paused : .queued)
+            let name = projectNames[$0.projectSource, default: folderRule.projectName(for: $0)]
+            projectNames[$0.projectSource] = name
+            return Transfer(media: $0, folder: folderRule.destination(base: folder, media: $0),
+                            status: isPaused ? .paused : .queued, projectName: name)
         })
         save()
         schedule()
         return new.count
+    }
+
+    func projectNamesForQueue() -> [URL: String] {
+        var names: [URL: String] = [:]
+        for item in items where names[item.media.projectSource] == nil {
+            names[item.media.projectSource] = item.projectName ?? folderRule.projectName(for: item.media)
+        }
+        return names
     }
 
     func togglePause() {
@@ -178,6 +189,8 @@ final class Transfers {
     var hasUnapprovedDownloads: Bool {
         !isPaused && items.contains(where: needsStart)
     }
+
+    var hasActiveDownloads: Bool { !tasks.isEmpty || !videoTasks.isEmpty }
 
     func needsStart(_ item: Transfer) -> Bool {
         !autoStart && [.queued, .retrying].contains(item.status) && !approved.contains(item.id)
@@ -217,14 +230,21 @@ final class Transfers {
     }
 
     func retry(_ id: UUID) {
-        guard let index = items.firstIndex(where: { $0.id == id }),
-              [.queued, .failed, .paused, .retrying].contains(items[index].status) else { return }
-        if !autoStart { approved.insert(id) }
-        items[index].status = isPaused ? .paused : .queued
-        items[index].manuallyPaused = false
-        items[index].attempts = 0
-        items[index].error = nil
-        items[index].retryDate = nil
+        retry([id])
+    }
+
+    func retry(_ ids: Set<UUID>) {
+        var changed = false
+        for index in items.indices where ids.contains(items[index].id) && items[index].canRetry {
+            if !autoStart { approved.insert(items[index].id) }
+            items[index].status = isPaused ? .paused : .queued
+            items[index].manuallyPaused = false
+            items[index].attempts = 0
+            items[index].error = nil
+            items[index].retryDate = nil
+            changed = true
+        }
+        guard changed else { return }
         save()
         schedule()
     }

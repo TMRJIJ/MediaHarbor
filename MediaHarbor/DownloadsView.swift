@@ -1,4 +1,5 @@
 import AppKit
+import QuickLook
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -18,6 +19,8 @@ struct AddSourceView: View {
     @State private var error: String?
     @State private var importing = false
 
+    private var websiteURL: URL? { URL.web(address, assumingHTTPS: true) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             PageHeading(title: "New download", detail: "Choose where to collect your files.")
@@ -33,6 +36,11 @@ struct AddSourceView: View {
                     .textFieldStyle(.roundedBorder)
                     .focused($focused)
                     .onSubmit(submit)
+                if let websiteURL {
+                    LabeledContent("Recommended template", value: browser.recommendedTemplate(for: websiteURL))
+                        .font(.callout)
+                        .help("Suggested from the website address and your scan settings. The app checks the page when scanning.")
+                }
                 Text("Scan a page or forum thread. You can sign in through the browser and scan again.")
                     .font(.callout).foregroundStyle(.secondary)
                 Toggle("Automatically queue the files found on the first scan", isOn: $autoQueue)
@@ -88,7 +96,7 @@ struct AddSourceView: View {
     private func submit() {
         switch mode {
         case .website:
-            guard let url = URL.web(address, assumingHTTPS: true) else {
+            guard let url = websiteURL else {
                 error = "Enter a valid website address."
                 return
             }
@@ -136,11 +144,18 @@ private enum QueueFilter: String, CaseIterable, Identifiable {
 }
 
 struct QueueView: View {
+    private enum Selection: Hashable {
+        case project(URL), file(UUID)
+    }
+
     let transfers: Transfers
     let browser: SiteBrowser
     let add: (SourceMode) -> Void
+    let openProject: (URL) -> Void
     @State private var filter = QueueFilter.all
-    @State private var selection: UUID?
+    @State private var selection: Selection?
+    @State private var collapsed: Set<URL> = []
+    @State private var previewURL: URL?
     @State private var confirmClear = false
 
     var body: some View {
@@ -163,10 +178,12 @@ struct QueueView: View {
             Button("Clear Queue", role: .destructive) {
                 transfers.clearQueue()
                 selection = nil
+                collapsed.removeAll()
             }
         } message: {
             Text("This cancels active downloads and removes all queue entries. Downloaded files and gallery images are kept.")
         }
+        .quickLookPreview($previewURL)
     }
 
     private var emptyQueue: some View {
@@ -206,6 +223,11 @@ struct QueueView: View {
     private var queue: some View {
         let items = transfers.items
         let filtered = items.filter(filter.matches)
+        let projects = Dictionary(grouping: items) { $0.media.projectSource }
+        let visibleProjects = Dictionary(grouping: filtered) { $0.media.projectSource }
+        let names = transfers.projectNamesForQueue()
+        var seen: Set<URL> = []
+        let projectOrder = items.map(\.media.projectSource).filter { seen.insert($0).inserted && visibleProjects[$0] != nil }
         return VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 16) {
                 metric("Active", items.filter { $0.status == .downloading }.count, "arrow.down")
@@ -231,15 +253,54 @@ struct QueueView: View {
                 ContentUnavailableView("No \(filter.rawValue.lowercased()) downloads", systemImage: "tray")
                     .frame(maxHeight: .infinity)
             } else {
-                List(filtered, selection: $selection) { transfer in
-                    row(transfer)
-                        .tag(transfer.id)
-                        .contextMenu { actions(transfer, menu: true) }
+                List(selection: $selection) {
+                    ForEach(projectOrder, id: \.self) { source in
+                        DisclosureGroup(isExpanded: Binding(get: { !collapsed.contains(source) }, set: { expanded in
+                            if expanded { collapsed.remove(source) } else { collapsed.insert(source) }
+                        })) {
+                            ForEach(visibleProjects[source, default: []]) { transfer in
+                                row(transfer)
+                                    .tag(Selection.file(transfer.id))
+                                    .contextMenu { actions(transfer, menu: true) }
+                            }
+                        } label: {
+                            projectRow(source, name: names[source] ?? source.displayFilename, items: projects[source, default: []])
+                        }
+                        .tag(Selection.project(source))
+                    }
                 }
                 .listStyle(.inset)
                 .padding(.horizontal, 13)
             }
         }
+    }
+
+    private func projectRow(_ source: URL, name: String, items: [Transfer]) -> some View {
+        let retryable = items.filter { $0.canRetry && ($0.status != .queued || transfers.needsStart($0)) }
+        return HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(name).font(.headline).lineLimit(1)
+                Text("\(items.count.formatted()) files · \(source.host ?? source.absoluteString)")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .help(source.absoluteString)
+            Spacer()
+            Button { openProject(source) } label: { Label("Open in Site Browser", systemImage: "globe") }
+                .help("Return to the link for this project")
+            Button {
+                Task {
+                    await browser.syncCookies(for: retryable.map(\.media.url))
+                    transfers.retry(Set(retryable.map(\.id)))
+                }
+            } label: {
+                Label("Retry project", systemImage: "arrow.clockwise")
+            }
+            .help("Retry failed or paused files and start waiting files in this project")
+            .disabled(retryable.isEmpty || transfers.isPaused)
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.borderless)
+        .padding(.vertical, 4)
     }
 
     private func metric(_ title: String, _ count: Int, _ icon: String) -> some View {
@@ -257,11 +318,19 @@ struct QueueView: View {
 
     private func row(_ transfer: Transfer) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: transfer.kind.icon)
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 36, height: 36)
-                .background(Color.accentColor.opacity(0.10), in: .rect(cornerRadius: 9))
+            Group {
+                if transfer.kind == .image, let output = transfer.output {
+                    LocalImage(url: output, pixels: 112)
+                } else {
+                    Image(systemName: transfer.kind.icon)
+                        .font(.system(size: 17, weight: .medium))
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+            .frame(width: 48, height: 40)
+            .background(Color.accentColor.opacity(0.10), in: .rect(cornerRadius: 9))
+            .clipShape(.rect(cornerRadius: 9))
+            .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(transfer.name).font(.callout.weight(.medium)).lineLimit(1)
                 Text(transfer.error ?? (transfer.media.videoPage == true ? "yt-dlp" : nil)
@@ -304,6 +373,10 @@ struct QueueView: View {
         switch transfer.status {
         case .complete:
             if let output = transfer.output {
+                Button { previewURL = output } label: {
+                    Label("Preview", systemImage: "eye")
+                }
+                .help("Preview the downloaded file with Quick Look")
                 Button { NSWorkspace.shared.activateFileViewerSelecting([output]) } label: {
                     Label("Show in Finder", systemImage: "folder")
                 }

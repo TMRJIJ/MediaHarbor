@@ -124,7 +124,7 @@ private struct ImageViewer: View {
     }
 }
 
-private struct LocalImage: View {
+struct LocalImage: View {
     let url: URL
     let pixels: Int
     @State private var bitmap: CGImage?

@@ -47,7 +47,7 @@ struct BrowserWorkspace: View {
                                 .help("Look up full-size images behind links to supported gallery sites")
                             Toggle("Ignore page assets", isOn: $browser.ignorePageAssets)
                                 .help("Filter common logos, avatars, icons, and loading images")
-                            Text("Next-page links are followed up to the page limit. A matching template can increase the limit.")
+                            Text("A matching template can set link exploration depth and increase the page limit.")
                                 .foregroundStyle(.secondary)
                                 .font(.caption)
                             Divider()
@@ -342,6 +342,18 @@ private struct TemplateEditor: View {
                 GridRow {
                     Text("Page limit").foregroundStyle(.secondary)
                     Stepper("\(template.pageLimit) pages", value: $template.pageLimit, in: 1...50)
+                }
+                GridRow {
+                    Text("Link exploration depth").foregroundStyle(.secondary)
+                    Picker("Link exploration depth", selection: $template.linkDepth) {
+                        Text("Use browser setting").tag(nil as Int?)
+                        Text("0 · Pagination only").tag(Optional(0))
+                        ForEach(1...10, id: \.self) { depth in
+                            Text("\(depth)").tag(Optional(depth))
+                        }
+                    }
+                    .labelsHidden()
+                    .help("Count ordinary same-site links from the starting page. Next-page links keep the current depth.")
                 }
             }
             Text("Use a selector to limit which links are checked for a matching gallery domain. Previews are kept if the gallery yields no images.")

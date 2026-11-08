@@ -19,12 +19,26 @@ struct GallerySite: Decodable, Identifiable {
         case "pixiv": "Pixiv"
         case "smugmug": "SmugMug"
         case "vk": "VK"
-        case "youtube": "YouTube"
+        case "youtube", "youtubeytbe": "YouTube"
         case "tiktok": "TikTok"
         case "soundcloud": "SoundCloud"
         case "dailymotion": "Dailymotion"
         default: id.replacingOccurrences(of: "-", with: " ").capitalized
         }
+    }
+
+    static func bestMatch(for url: URL, in sites: [Self]) -> Self? {
+        guard let host = url.host?.lowercased() else { return nil }
+        var best: Self?
+        var matchLength = 0
+        for site in sites {
+            for domain in site.hosts where domain.count > matchLength &&
+                (host == domain || host.hasSuffix("." + domain)) {
+                best = site
+                matchLength = domain.count
+            }
+        }
+        return best
     }
 }
 
@@ -207,17 +221,18 @@ struct GalleryProcess {
     }
 }
 
-private enum GalleryKeychain {
-    private static func query(_ account: String) -> [String: Any] {
+enum CredentialKeychain {
+    private static let galleryService = "Media Harbor gallery-dl OAuth"
+    private static func query(_ account: String, service: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "Media Harbor gallery-dl OAuth",
+            kSecAttrService as String: service,
             kSecAttrAccount as String: account
         ]
     }
 
-    static func load(_ account: String) -> [String: String]? {
-        var request = query(account)
+    static func load(_ account: String, service: String = galleryService) -> [String: String]? {
+        var request = query(account, service: service)
         request[kSecReturnData as String] = true
         var result: CFTypeRef?
         guard SecItemCopyMatching(request as CFDictionary, &result) == errSecSuccess,
@@ -225,8 +240,8 @@ private enum GalleryKeychain {
         return try? JSONDecoder().decode([String: String].self, from: data)
     }
 
-    static func save(_ values: [String: String], for account: String) throws {
-        let query = query(account)
+    static func save(_ values: [String: String], for account: String, service: String = galleryService) throws {
+        let query = query(account, service: service)
         let values = [kSecValueData as String: try JSONEncoder().encode(values)]
         var status = SecItemUpdate(query as CFDictionary, values as CFDictionary)
         if status == errSecItemNotFound {
@@ -235,8 +250,8 @@ private enum GalleryKeychain {
         guard status == errSecSuccess else { throw GalleryError.credentials(status) }
     }
 
-    static func remove(_ account: String) throws {
-        let status = SecItemDelete(query(account) as CFDictionary)
+    static func remove(_ account: String, service: String = galleryService) throws {
+        let status = SecItemDelete(query(account, service: service) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw GalleryError.credentials(status) }
     }
 }
@@ -364,17 +379,17 @@ final class GalleryIntegration {
                         cookies[cookie.key] = cookie
                     }
                     let account = Self.account(provider, instance: host)
-                    let options = accounts.contains(account) ? GalleryKeychain.load(account) ?? [:] : [:]
+                    let options = accounts.contains(account) ? CredentialKeychain.load(account) ?? [:] : [:]
                     activeAccount = account
                     activeOptions = options
                     try process.send(Credentials(cookies: Array(cookies.values), options: options))
                 case "refreshed":
                     if let account = activeAccount, accounts.contains(account),
-                       GalleryKeychain.load(account) == activeOptions, let token = event.options?["refresh-token"] {
+                       CredentialKeychain.load(account) == activeOptions, let token = event.options?["refresh-token"] {
                         var updated = activeOptions
                         updated["refresh-token"] = token
                         do {
-                            try GalleryKeychain.save(updated, for: account)
+                            try CredentialKeychain.save(updated, for: account)
                             activeOptions = updated
                         } catch {
                             outcome.note = "The refreshed authorization could not be saved in Keychain."
@@ -493,7 +508,7 @@ final class GalleryIntegration {
                     case "connected":
                         guard let options = event.options else { throw GalleryError.processFailed }
                         let account = Self.account(provider, instance: host)
-                        try GalleryKeychain.save(options, for: account)
+                        try CredentialKeychain.save(options, for: account)
                         accounts.insert(account)
                         authMessage = "Account connected."
                         return
@@ -526,7 +541,7 @@ final class GalleryIntegration {
 
     func disconnect(_ account: String) {
         do {
-            try GalleryKeychain.remove(account)
+            try CredentialKeychain.remove(account)
             accounts.remove(account)
             authMessage = "Account disconnected from Media Harbor."
         } catch {

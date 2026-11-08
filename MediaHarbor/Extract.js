@@ -266,19 +266,20 @@ if (!options.search && document.querySelector('video')) {
 }
 
 const next = new Set();
-function addPage(value) {
+const exploration = new Set();
+function addPage(value, destination) {
     const url = web(value);
-    if (url && url.origin === location.origin && next.size < 500) next.add(url.href);
+    if (url && url.origin === location.origin && destination.size < 500) destination.add(url.href);
 }
 if (!options.search) {
     for (const node of select(options.next || 'a[rel=next], link[rel=next], a.pageNav-jump--next, .pagination .next a, a[aria-label="Next page"]')) {
-        addPage(node.getAttribute('href'));
+        addPage(node.getAttribute('href'), next);
     }
     if (options.follow) {
         for (const node of select('main a[href], article a[href], [role=main] a[href], body a[href]')) {
             const href = web(node.getAttribute('href'));
-            if (href && !found.has(href.href) && !images.test(href.pathname) && !videos.test(href.pathname)
-                && !audio.test(href.pathname) && !files.test(href.pathname)) addPage(href.href);
+            if (href && !next.has(href.href) && !found.has(href.href) && !images.test(href.pathname) && !videos.test(href.pathname)
+                && !audio.test(href.pathname) && !files.test(href.pathname)) addPage(href.href, exploration);
         }
     }
 }
@@ -286,7 +287,7 @@ const gallery = document.querySelector('[data-gallery-title]');
 const galleryTitle = gallery?.getAttribute('data-gallery-title')?.trim()
     || document.querySelector('main h1, article h1, body > h1')?.textContent?.trim()
     || null;
-return {media: [...found.values()], pages: [...next],
+return {media: [...found.values()], pages: [...next], exploration: [...exploration],
         galleries: [...galleryLinks].map(([url, previews]) => ({url, previews: [...previews]})),
         replacedPreviews: [...replacedPreviews],
         pageTitle: (document.title || '').slice(0, 500) || null,

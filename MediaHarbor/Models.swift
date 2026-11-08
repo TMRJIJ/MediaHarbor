@@ -58,15 +58,26 @@ enum DownloadFolderRule: String, CaseIterable, Identifiable {
         let path = media.collectionURL == nil && media.source == nil ? "" : source.path
             .split(separator: "/").joined(separator: " · ")
         let urlName = path.isEmpty ? host : host + " — " + path
-        let name: String?
-        switch self {
-        case .none: return base
-        case .url: name = urlName
-        case .galleryTitle: name = Self.component(media.galleryTitle) ?? Self.component(urlName)
-        case .pageTitle: name = Self.component(media.pageTitle) ?? Self.component(urlName)
-        }
-        guard let component = Self.component(name) else { return base }
+        guard self != .none, let component = name(for: media, urlName: urlName) else { return base }
         return base.appending(path: component, directoryHint: .isDirectory)
+    }
+
+    func projectName(for media: MediaCandidate) -> String {
+        let source = media.projectSource
+        let path = source.path.split(separator: "/").joined(separator: " · ")
+        let host = source.host ?? "Downloads"
+        let urlName = path.isEmpty ? host : host + " — " + path
+        return name(for: media, urlName: urlName) ?? host
+    }
+
+    private func name(for media: MediaCandidate, urlName: String) -> String? {
+        let title: String? = switch self {
+        case .none: Self.component(media.pageTitle) ?? Self.component(media.galleryTitle)
+        case .url: nil
+        case .galleryTitle: Self.component(media.galleryTitle)
+        case .pageTitle: Self.component(media.pageTitle)
+        }
+        return title ?? Self.component(urlName)
     }
 
     private static func component(_ name: String?) -> String? {
@@ -128,6 +139,8 @@ struct MediaCandidate: Identifiable, Codable, Hashable {
     var galleryTitle: String? = nil
     var pageTitle: String? = nil
     var videoPage: Bool? = nil
+    var projectURL: URL? = nil
+    var projectSource: URL { projectURL ?? collectionURL ?? source ?? url }
     var id: URL { url }
     var streamFormat: StreamFormat? { stream ?? StreamFormat(url: url) }
     var name: String {
@@ -149,6 +162,7 @@ struct SiteTemplate: Codable, Identifiable, Equatable {
     var linkedGallerySelector: String?
     var mediaKind: MediaKind? = nil
     var pageLimit = 1
+    var linkDepth: Int?
 
     func matches(_ url: URL) -> Bool {
         guard let hostname = url.host?.lowercased() else { return false }
@@ -162,7 +176,11 @@ struct SiteTemplate: Codable, Identifiable, Equatable {
         .init(name: "Flickr", host: "flickr.com", selector: "img[src*='staticflickr.com'], a[href*='staticflickr.com']", nextSelector: "a[rel=next], a.pagination-next", pageLimit: 3),
         .init(name: "Reddit", host: "reddit.com", selector: "img[src*='redd.it'], a[href*='i.redd.it'], video, video source"),
         .init(name: "VK", host: "vk.com", selector: "img[src*='userapi.com'], img[src*='vkuser.net'], video, video source")
-    ]
+    ] + ["vipergirls.to", "viper.click"].map { host in
+        SiteTemplate(name: "ViperGirls", host: host,
+                     selector: ".postcontent img, .postcontent a[href], .postcontent video, .postcontent audio, .postcontent source",
+                     linkedGallerySelector: ".postcontent a[href], .postcontent img[data-gallery-url], .postcontent img[data-full-src], .postcontent img[data-original]")
+    }
 }
 
 enum TransferStatus: String, Codable {
@@ -182,7 +200,9 @@ struct Transfer: Codable, Identifiable {
     var output: URL?
     var error: String?
     var retryDate: Date?
+    var projectName: String?
 
+    var canRetry: Bool { [.queued, .failed, .paused, .retrying].contains(status) }
     var name: String { output?.lastPathComponent ?? media.name }
     var fraction: Double? { expected > 0 ? min(1, Double(received) / Double(expected)) : nil }
     var kind: MediaKind { output.flatMap(MediaKind.detect) ?? (media.streamFormat == nil ? media.kind : .video) }

@@ -13,7 +13,7 @@ struct HelpView: View {
                 }
                 topic("Scan websites and forums", icon: "globe") {
                     Text("Sign in through Site Browser if needed, open the page with the media, then click Scan Page. Enable auto-scroll for content that loads as you scroll. Increase Pages to scan for long threads.")
-                    Text("In Scan settings, turn on Follow links to known gallery domains to look up full-size images linked from thumbnails. If a file is missing, try turning off Ignore page assets and scanning again.")
+                    Text("ViperGirls scans follow supported image links in posts automatically. For other sites, turn on Follow links to known gallery domains in Scan settings. If a file is missing, try turning off Ignore page assets and scanning again.")
                 }
                 topic("Use templates and sign in", icon: "key") {
                     Text("Browse gallery-dl Sites and yt-dlp Sites in Templates for supported sites and example URLs. Create a Web Rule to specify which parts of a page contain media or links to galleries.")
@@ -24,11 +24,15 @@ struct HelpView: View {
                     Text("Paste an HLS (.m3u8) or DASH (.mpd) playlist into URL List to download it with FFmpeg. Use Stop & Save to keep a live recording. Resuming a paused live stream starts a new recording.")
                 }
                 topic("Manage the queue and saved files", icon: "arrow.down.circle") {
-                    Text("In Downloads, pause or resume the queue or use the controls beside a file. Clear Queue cancels active transfers and keeps files you already saved.")
+                    Text("In Downloads, expand a project to see its files. Use the globe to reopen the source in Site Browser, or use Retry Project to retry unfinished files. Select Preview beside a saved file to open it in Quick Look.")
+                    Text("Clear Queue cancels active transfers and keeps files you already saved.")
                     Text("Open Settings (⌘,) to set the save folder, folder naming, simultaneous downloads, retries, and automatic start. If automatic start is off, click Start Queue or start individual files.")
                 }
                 topic("View downloaded images", icon: "photo.on.rectangle.angled") {
                     Text("Open Gallery and select a thumbnail to preview it. Use the arrow keys to browse, or choose Slideshow to advance automatically.")
+                }
+                topic("Update the app and dependencies", icon: "arrow.trianglehead.clockwise") {
+                    Text("In Settings, save a GitHub token with read access to the private MediaHarbor repository. Check for Updates finds signed releases, including their bundled dependencies. You can also opt in to installation at launch when the app is idle.")
                 }
             }
             .padding(26)

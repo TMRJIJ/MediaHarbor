@@ -61,6 +61,7 @@ struct BrowserPane: NSViewRepresentable {
 private struct ScanResult: Decodable {
     var media: [MediaCandidate]
     var pages: [URL]
+    var exploration: [URL]?
     var pageTitle: String?
     var galleryTitle: String?
     var galleries: [LinkedGallery]?
@@ -141,6 +142,7 @@ private struct LinkedGallery: Decodable {
 
 private struct PageDiscovery {
     var pages: [URL] = []
+    var exploration: [URL] = []
     var galleries: [LinkedGallery] = []
     var images: Set<URL> = []
 }
@@ -291,25 +293,47 @@ final class SiteBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
         scanTask?.cancel()
     }
 
+    func recommendedTemplate(for url: URL) -> String {
+        let rules = websiteRules(for: url)
+        if let custom = rules.custom { return "\(custom.name) · Custom Web Rule" }
+        if rules.linkedSelector == nil {
+            if let site = GallerySite.bestMatch(for: url, in: gallery.sites)
+                ?? (url.isXSite ? gallery.sites.first { $0.id == "twitter" } : nil) {
+                return "\(site.name) · gallery-dl"
+            }
+            if let site = GallerySite.bestMatch(for: url, in: YTDLPIntegration.catalog?.sites ?? []) {
+                return "\(site.name) · yt-dlp"
+            }
+        }
+        if let preset = rules.preset { return "\(preset.name) · Built-in Web Rule" }
+        return "Standard browser scan"
+    }
+
+    private func websiteRules(for url: URL) -> (custom: SiteTemplate?, preset: SiteTemplate?, linkedSelector: String?) {
+        let custom = templates.first { $0.matches(url) }
+        let preset = SiteTemplate.presets.first { $0.matches(url) }
+        let linkedSelector = custom?.linkedGallerySelector ?? preset?.linkedGallerySelector ?? (followLinkedGalleries
+            ? "a[href], img[data-gallery-url], img[data-full-src], img[data-original]" : nil)
+        return (custom, preset, linkedSelector)
+    }
+
     func scan(extractorSource: URL? = nil, forceVideo: Bool = false) {
         guard !isScanning, !isLoading, let url = (browserPageLoaded ? webView.url : currentURL) else { return }
         let importedXTarget = url.isXSignIn ? xSignIn?.target.flatMap { gallery.hasImportedCookies(for: $0) ? $0 : nil } : nil
         if url.isXSignIn, importedXTarget == nil, handleXLocation(url) { return }
         isScanning = true
         let videoOnly = forceVideo || prefersVideo
-        let customTemplate = videoOnly ? nil : templates.first { $0.matches(url) }
-        let template = customTemplate ?? SiteTemplate.presets.first { $0.matches(url) }
+        let rules = websiteRules(for: url)
+        let customTemplate = videoOnly ? nil : rules.custom
+        let template = customTemplate ?? rules.preset
         let xMedia = url.isXSite && customTemplate == nil
         let search = searchEngine.flatMap { $0.matches(url) ? $0 : nil }
-        let linkedSelector = search == nil && !videoOnly
-            ? template?.linkedGallerySelector ?? (followLinkedGalleries
-                ? "a[href], img[data-gallery-url], img[data-full-src], img[data-original]" : nil)
-            : nil
+        let linkedSelector = search == nil && !videoOnly ? rules.linkedSelector : nil
         let useHandoffs = linkedSelector != nil && browserPageLoaded
         isResolvingLinkedGalleries = useHandoffs
         let limit = search == nil ? max(pageLimit, template?.pageLimit ?? 1) : 1
         let scrolling = autoScroll
-        let follow = followLinks
+        let linkDepth = template?.linkDepth.map { max(0, min(10, $0)) } ?? (followLinks ? limit - 1 : 0)
         let collection = importedXTarget ?? extractorSource ?? url
         let autoQueue = queueFirstScan || (url.isXSite && xAutoQueue)
         queueFirstScan = false
@@ -398,9 +422,10 @@ final class SiteBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
                     return
                 }
                 let initial = try await scanPage(webView, source: url, template: template, search: search,
-                                                 follow: follow, scrolling: scrolling, xMedia: xMedia,
+                                                 follow: linkDepth > 0, scrolling: scrolling, xMedia: xMedia,
                                                  collection: collection, pageTitle: pageTitle, linkedSelector: linkedSelector)
-                var pendingPages = initial.pages
+                var pendingPages = initial.pages.map { (url: $0, depth: 0) }
+                    + initial.exploration.map { (url: $0, depth: 1) }
                 var galleries = initial.galleries
                 var seen: Set<URL> = [url]
                 var count = 1
@@ -408,20 +433,22 @@ final class SiteBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
                 while count < limit, !pendingPages.isEmpty, found.count < 5000 {
                     try Task.checkCancellation()
                     let next = pendingPages.removeFirst()
-                    guard seen.insert(next).inserted else { continue }
+                    guard seen.insert(next.url).inserted else { continue }
                     count += 1
                     message = "Scanning page \(count) of up to \(limit)…"
                     do {
-                        try await loadForScan(next)
+                        try await loadForScan(next.url)
                         guard let destination = crawler.url, destination.host == url.host,
                               destination.scheme == url.scheme, destination.port == url.port else {
                             skipped += 1
                             continue
                         }
                         let discovery = try await scanPage(crawler, source: destination, template: template,
-                                                       search: nil, follow: follow, scrolling: scrolling, xMedia: xMedia,
+                                                       search: nil, follow: next.depth < linkDepth, scrolling: scrolling, xMedia: xMedia,
                                                        collection: collection, pageTitle: pageTitle, linkedSelector: linkedSelector)
-                        pendingPages.append(contentsOf: discovery.pages)
+                        let nextDepth = pendingPages.firstIndex { $0.depth > next.depth } ?? pendingPages.endIndex
+                        pendingPages.insert(contentsOf: discovery.pages.map { ($0, next.depth) }, at: nextDepth)
+                        pendingPages.append(contentsOf: discovery.exploration.map { ($0, next.depth + 1) })
                         galleries.append(contentsOf: discovery.galleries)
                     } catch is CancellationError {
                         throw CancellationError()
@@ -453,7 +480,11 @@ final class SiteBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     func queueSelected() async {
-        let chosen = visible.filter { selected.contains($0.url) }
+        let chosen = visible.filter { selected.contains($0.url) }.map { candidate in
+            var candidate = candidate
+            candidate.projectURL = homeURL ?? currentURL
+            return candidate
+        }
         let cookies = await webView.configuration.websiteDataStore.httpCookieStore.allCookies()
         guard !Task.isCancelled else { return }
         transfers.importCookies(cookies, for: chosen.map(\.url))
@@ -742,6 +773,7 @@ final class SiteBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
                           linkedSelector: String? = nil) async throws -> PageDiscovery {
         var discovery = PageDiscovery()
         var seen: Set<URL> = []
+        var explored: Set<URL> = []
         var replaced: Set<URL> = []
         var galleryPreviews: [URL: Set<URL>] = [:]
         var galleryOrder: [URL] = []
@@ -762,6 +794,7 @@ final class SiteBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
                   galleryTitle: result.galleryTitle)
             discovery.images.formUnion(media.lazy.filter { $0.kind == .image }.map(\.url))
             discovery.pages.append(contentsOf: result.pages.filter { seen.insert($0).inserted })
+            discovery.exploration.append(contentsOf: (result.exploration ?? []).filter { explored.insert($0).inserted })
             for link in result.galleries ?? [] {
                 if galleryPreviews[link.url] == nil { galleryOrder.append(link.url) }
                 galleryPreviews[link.url, default: []].formUnion(link.previews)

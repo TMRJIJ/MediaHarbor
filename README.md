@@ -4,7 +4,7 @@ Media Harbor is a native bulk media downloader for macOS Tahoe 26 and newer on A
 
 ## Install and get help
 
-Unzip the app archive if you have one, move **Media Harbor.app** to Applications, and open it. To run from source, follow [Build from source](#build-from-source).
+Download **Media.Harbor.zip** from [GitHub Releases](https://github.com/TMRJIJ/MediaHarbor/releases), unzip it, and move **Media Harbor.app** to Applications. The repository requires GitHub access. To run from source, follow [Build from source](#build-from-source).
 
 Open **Help → Media Harbor Help** for instructions in the app. The **Support** section in the sidebar also opens Help and About. Hover over a control for a short description.
 
@@ -12,10 +12,10 @@ Open **Help → Media Harbor Help** for instructions in the app. The **Support**
 
 1. Open **Media Harbor**, then choose **New Download** or press **⌘N**.
 2. Choose a source.
-   - **Website** opens the page in the built-in browser and scans for files. Review the results, select the file types you want, and click **Queue**. Enable automatic queueing to download the first scan's results immediately.
+   - **Website** shows a recommended template as you enter or paste a link. **Open and Scan** opens the page in Site Browser and looks for files. Review the results, select the file types you want, and click **Queue**. Enable automatic queueing to download the first scan's results immediately.
    - **URL List** accepts one HTTP or HTTPS link per line. Paste a list or import a UTF-8 text file.
    - **Image Search** opens Bing, Google, Yandex, DuckDuckGo, or Yahoo Images. On Google, open an image result and use **Scan Page** to collect the image exposed in the preview.
-3. In **Downloads**, use the toolbar to pause the queue or the row controls to pause and resume a single file. **Clear Queue** cancels active downloads and clears the list while keeping saved files and gallery images.
+3. In **Downloads**, files are grouped under the website or direct link that started the project. Expand a project to see its files. Use its globe button to reopen the source in Site Browser, or its retry button to retry failed or paused files and start files waiting for approval. Completed image rows show thumbnails, and **Preview** opens saved files in Quick Look. **Clear Queue** cancels active downloads and clears the list while keeping saved files and gallery images.
 4. In **Gallery**, click a thumbnail to preview it or choose **Slideshow** to advance through the images every three seconds.
 
 Files save to **Downloads/Media Harbor** by default. Failed downloads can be retried from the queue. When a server supplies resumable transfers, pausing saves the partial download for later. Otherwise the next attempt starts at the beginning.
@@ -23,6 +23,8 @@ Files save to **Downloads/Media Harbor** by default. Failed downloads can be ret
 Settings (**⌘,**) lets you choose a download folder, simultaneous downloads, retry count, and whether queued files start automatically. When automatic start is off, choose **Start Queue** to start the current batch or use the play button on an individual row. Files you add later wait for another start.
 
 Under **Settings → Downloads → Create folders by**, choose **URL**, **Gallery title**, or **Page title**. URL folders use the source website’s host and path. Direct links without a source page are grouped by host. The title options fall back to URL naming when the relevant title is unavailable. The setting applies when files enter the queue.
+
+Projects use the same naming preference when first added. With **Keep files together**, project names use an available page or gallery title and fall back to the link. Files from the same source stay under one project even if they save in different folders.
 
 ## Video streams
 
@@ -44,9 +46,9 @@ Sign in through **Site Browser**, then navigate to the protected page and select
 
 For X, start with a post URL or a profile’s **Media** tab. If X redirects to sign-in, Media Harbor returns to the starting page and scans it after login.
 
-The scanner follows same-origin next-page links up to the page limit. Increase the limit under the scan settings for longer threads, or enable **Follow links on the same website** to explore beyond pagination. **Auto-scroll during scans** is enabled by default and collects files as more results load, up to 20 scroll steps per page. Expand collapsed content before scanning if needed. Use **Home** to return to the starting URL. Discovered files accumulate while browsing until you start a new website collection or image search.
+The scanner follows same-origin next-page links up to the page limit. Increase the limit under the scan settings for longer threads, or enable **Follow links on the same website** to explore beyond pagination. In **Templates → Web Rules**, **Link exploration depth** can override that browser setting. Depth 0 follows pagination, depth 1 also visits ordinary links from the starting page and its next pages, and higher values allow further same-site hops. The page limit still applies. Off-site gallery handoff has its own setting. **Auto-scroll during scans** is enabled by default and collects files as more results load, up to 20 scroll steps per page. Expand collapsed content before scanning if needed. Use **Home** to return to the starting URL. Discovered files accumulate while browsing until you start a new website collection or image search.
 
-For off-site galleries, enable **Follow links to known gallery domains** in Site Browser’s scan settings. Both text links and linked thumbnails qualify when the destination domain matches a Web Rule or gallery-dl site. A forum’s optional **Linked gallery selector** enables handoff for that forum and narrows which links are checked. For example, `article a[href]:has(img)` matches thumbnails in forum posts. Direct image links go straight to the results.
+ViperGirls scans automatically follow supported gallery links inside forum posts. For other sites, enable **Follow links to known gallery domains** in Site Browser’s scan settings. Both text links and linked thumbnails qualify when the destination domain matches a Web Rule or gallery-dl site. A forum’s optional **Linked gallery selector** enables handoff for that forum and narrows which links are checked. For example, `article a[href]:has(img)` matches thumbnails in forum posts. Direct image links go straight to the results.
 
 Media Harbor can verify full-size files directly when an IMX, Imgbox, or Pixhost thumbnail matches its destination. It also looks up up to 100 linked image pages with gallery-dl, including ImageBam, ImageVenue, ImageTwist, Postimages, ImgBB, and TurboImageHost. The scan recognizes alternate domains such as `pixhost.to` and `postimages.org`. When a lookup yields a full-size image, it replaces the thumbnail. Otherwise the preview remains eligible. The browser can also follow up to 25 linked galleries or other destinations, with up to 10 next pages per destination.
 
@@ -81,6 +83,12 @@ SwiftUI and Liquid Glass power the interface. WebKit provides the browser and we
 
 The complete list of Python wheels and runtime checksums is in the [gallery lockfile](Scripts/gallery-runtime.lock.json) and [video lockfile](Scripts/video-runtime.lock.json). Third-party licenses ship with the app. The [FFmpeg source, cookie patch, and build script](MediaHarbor/VideoRuntime/Source) are included alongside its [LGPL notice](MediaHarbor/VideoRuntime/COPYING.LGPLv2.1).
 
+## App and dependency updates
+
+In **Settings → App and dependency updates**, save a fine-grained GitHub token with **Contents: Read-only** access to **TMRJIJ/MediaHarbor**. Media Harbor stores the token in macOS Keychain and uses it to access the private release downloads. Select **Check for Updates**, then **Install and Restart** when a newer signed build is available. Dependency versions move together with the app in each release.
+
+**Install updates automatically on launch** is optional and off by default. When enabled, Media Harbor checks at launch and installs a verified release when the app is idle. Install the app in a writable location to allow replacement.
+
 ## Build from source
 
 Use a Mac running macOS Tahoe 26 or later, Xcode with the macOS 26 SDK or later, and Python 3.13. From the repository root, prepare the bundled runtimes. The first command downloads pinned dependencies and verifies their checksums. The second builds FFmpeg for both Mac architectures.
@@ -99,6 +107,8 @@ xcodebuild -project MediaHarbor.xcodeproj -scheme MediaHarbor \
 ```
 
 The resulting app is at `/tmp/MediaHarborBuild/Build/Products/Release/Media Harbor.app`. The local signature is for running the app on this Mac.
+
+Repository updates require the publisher’s private signing key. For a release, bump the version, build the universal app, and use `ditto -c -k --keepParent` to package it as `Media.Harbor.zip`. Compile `Scripts/sign_release.swift` with the macOS SDK and run its `sign KEY_FILE Media.Harbor.zip Media.Harbor.zip.sig` command. Upload both assets to a GitHub release tagged with the matching version, such as `v0.7.0`. Keep the private key outside the repository and back it up securely.
 
 ## Contributing
 
