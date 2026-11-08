@@ -1,0 +1,22 @@
+.DS_Store
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# Generated runtime files. Rebuild them from the pinned dependency scripts.
+/MediaHarbor/GalleryRuntime/bin/
+/MediaHarbor/GalleryRuntime/lib/
+/MediaHarbor/GalleryRuntime/sites.json
+/MediaHarbor/GalleryRuntime/video-sites.json
+/MediaHarbor/VideoRuntime/deno
+/MediaHarbor/VideoRuntime/ffmpeg
+__pycache__/
+*.pyc
+
+# Local credentials and release artifacts.
+.env
+.env.*
+cookies.txt
+*.app/
+*.dSYM/

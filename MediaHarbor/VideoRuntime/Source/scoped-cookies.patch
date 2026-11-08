@@ -1,0 +1,110 @@
+--- a/libavformat/http.c
++++ b/libavformat/http.c
+@@ -1307,8 +1307,8 @@
+             av_free(s->mime_type);
+             s->mime_type = av_get_token((const char **)&p, ";");
+         } else if (!av_strcasecmp(tag, "Set-Cookie")) {
+-            if (parse_cookie(s, p, &s->cookie_dict))
+-                av_log(h, AV_LOG_WARNING, "Unable to parse '%s'\n", p);
++            // Media Harbor supplies scoped cookies from its browser session.
++            // Do not import cookies set by a playlist or one of its segments.
+         } else if (!av_strcasecmp(tag, "Icy-MetaInt")) {
+             s->icy_metaint = strtoull(p, NULL, 10);
+         } else if (!av_strncasecmp(tag, "Icy-", 4)) {
+@@ -1346,14 +1346,17 @@
+  *
+  * @return a negative value if an error condition occurred, 0 otherwise
+  */
+-static int get_cookies(HTTPContext *s, char **cookies, const char *path,
+-                       const char *domain)
++static int get_cookies(HTTPContext *s, char **cookies, const char *path)
+ {
+     // cookie strings will look like Set-Cookie header field values.  Multiple
+     // Set-Cookie fields will result in multiple values delimited by a newline
+     int ret = 0;
+     char *cookie, *set_cookies, *next;
+     char *saveptr = NULL;
++    char scheme[16], domain[1024];
++
++    av_url_split(scheme, sizeof(scheme), NULL, 0, domain, sizeof(domain),
++                 NULL, NULL, 0, s->location);
+ 
+     // destroy any cookies in the dictionary.
+     av_dict_free(&s->cookie_dict);
+@@ -1393,22 +1396,31 @@
+             }
+         }
+ 
+-        // if no domain in the cookie assume it applied to this request
+-        if ((e = av_dict_get(cookie_params, "domain", NULL, 0)) && e->value) {
+-            // find the offset comparison is on the min domain (b.com, not a.b.com)
+-            int domain_offset = strlen(domain) - strlen(e->value);
+-            if (domain_offset < 0)
++        // Require an explicit domain. A leading dot allows subdomains.
++        e = av_dict_get(cookie_params, "domain", NULL, 0);
++        if (!e || !e->value || !*e->value)
++            goto skip_cookie;
++        if (e->value[0] == '.') {
++            const char *base = e->value + 1;
++            size_t n = strlen(domain), m = strlen(base);
++            if (!m || n < m || (n > m && domain[n - m - 1] != '.') ||
++                av_strcasecmp(domain + n - m, base))
+                 goto skip_cookie;
+-
+-            // match the cookie domain
+-            if (av_strcasecmp(&domain[domain_offset], e->value))
++        } else if (av_strcasecmp(domain, e->value)) {
++            goto skip_cookie;
++        }
++
++        if (av_dict_get(cookie_params, "secure", NULL, 0) &&
++            av_strcasecmp(scheme, "https"))
++            goto skip_cookie;
++
++        e = av_dict_get(cookie_params, "path", NULL, 0);
++        if (e && e->value && *e->value) {
++            size_t n = strlen(e->value);
++            if (strncmp(path, e->value, n) ||
++                (e->value[n - 1] != '/' && path[n] && path[n] != '/' && path[n] != '?'))
+                 goto skip_cookie;
+         }
+-
+-        // if a cookie path is provided, ensure the request path is within that path
+-        e = av_dict_get(cookie_params, "path", NULL, 0);
+-        if (e && av_strncasecmp(path, e->value, strlen(e->value)))
+-            goto skip_cookie;
+ 
+         // cookie parameters match, so copy the value
+         if (!*cookies) {
+@@ -1629,7 +1641,7 @@
+         av_bprintf(&request, "Content-Type: %s\r\n", s->content_type);
+     if (!has_header(s->headers, "\r\nCookie: ") && s->cookies) {
+         char *cookies = NULL;
+-        if (!get_cookies(s, &cookies, path, hoststr) && cookies) {
++        if (!get_cookies(s, &cookies, path) && cookies) {
+             av_bprintf(&request, "Cookie: %s\r\n", cookies);
+             av_free(cookies);
+         }
+--- a/fftools/cmdutils.c
++++ b/fftools/cmdutils.c
+@@ -869,6 +869,20 @@
+             continue;
+         }
+ 
++        /* Media Harbor loads scoped cookie values from a private file. */
++        if (!strcmp(opt, "/cookies")) {
++            char *contents;
++            GET_ARG(arg);
++            contents = read_file_to_string(arg);
++            if (!contents)
++                return AVERROR(EINVAL);
++            ret = opt_default(NULL, "cookies", contents);
++            av_free(contents);
++            if (ret < 0)
++                return ret;
++            continue;
++        }
++
+         /* AVOptions */
+         if (argv[optindex]) {
+             ret = opt_default(NULL, opt, argv[optindex]);

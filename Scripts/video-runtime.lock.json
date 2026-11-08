@@ -1,0 +1,58 @@
+{
+  "wheels": [
+    {
+      "name": "yt-dlp",
+      "version": "2026.10.26",
+      "filename": "yt_dlp-2026.10.26-py3-none-any.whl",
+      "sha256": "a05c5b5d8562f7e8a62f5334348b406af4930d56d3a65f8021d14af0e22339ae",
+      "url": "https://files.pythonhosted.org/packages/7f/3d/16ea7d5638cf585991f2c5705e8083688dde633d32d0871f2404e0f4d827/yt_dlp-2026.10.26-py3-none-any.whl"
+    },
+    {
+      "name": "yt-dlp-ejs",
+      "version": "0.8.0",
+      "filename": "yt_dlp_ejs-0.8.0-py3-none-any.whl",
+      "sha256": "79300e5fca7f937a1eeede11f0456862c1b41107ce1d726871e0207424f4bdb4",
+      "url": "https://files.pythonhosted.org/packages/e3/bd/520769863744b669440a924271a6159ddd82ad5ae26b4ac4d4b69e9f8d44/yt_dlp_ejs-0.8.0-py3-none-any.whl"
+    },
+    {
+      "name": "mutagen",
+      "version": "1.48.1",
+      "filename": "mutagen-1.48.1-py3-none-any.whl",
+      "sha256": "4f077fe87d3fc7fba259aa63d8c026b18382ca6a42ef37c61e16f1b1b5b82fe7",
+      "url": "https://files.pythonhosted.org/packages/47/d8/a29e4e3991765e7ce4ed1f7e4074fe1ba9da03e0048639734de60f9cadb9/mutagen-1.48.1-py3-none-any.whl"
+    },
+    {
+      "name": "websockets",
+      "version": "17.3",
+      "filename": "websockets-17.3-py3-none-any.whl",
+      "sha256": "dc2b495a92b3971966bf102e73589f950db3ec1ca6713265355ce7771d97b199",
+      "url": "https://files.pythonhosted.org/packages/d7/b0/3f01fcb3406662f6deb1e3e72b34dd0979e993991c0b7435a9e12bc14f02/websockets-17.3-py3-none-any.whl"
+    },
+    {
+      "name": "pycryptodomex",
+      "version": "3.24.1",
+      "filename": "pycryptodomex-3.24.1-cp37-abi3-macosx_10_9_universal2.whl",
+      "sha256": "9bb353c764c144a9fc03302ef3763ad0c3e75bc7ca41f445cc98455f36da6c59",
+      "url": "https://files.pythonhosted.org/packages/bf/ae/48679004ab908818326a62c35586b51ccd6ba0e3a03d0ae637cd13e8df99/pycryptodomex-3.24.1-cp37-abi3-macosx_10_9_universal2.whl"
+    }
+  ],
+  "deno": {
+    "version": "v2.9.8",
+    "binaries": [
+      {
+        "arch": "arm64",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.8/deno-aarch64-apple-darwin.zip",
+        "sha256": "9f0bf660393da2eaff044cdc7444cb08c73f235849b61d224d825a194ce7c98e"
+      },
+      {
+        "arch": "x86_64",
+        "url": "https://github.com/denoland/deno/releases/download/v2.9.8/deno-x86_64-apple-darwin.zip",
+        "sha256": "4b2f5edd2639b7470f034238b321d7002d8dfb4726d8558f52c17afac370eb2c"
+      }
+    ],
+    "license": {
+      "url": "https://raw.githubusercontent.com/denoland/deno/v2.9.8/LICENSE.md",
+      "sha256": "f62497fffecc0852960c8d3e6934b9db86d16396e9b604072e923892cae3a588"
+    }
+  }
+}
