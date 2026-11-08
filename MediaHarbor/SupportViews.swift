@@ -32,7 +32,7 @@ struct HelpView: View {
                     Text("Open Gallery and select a thumbnail to preview it. Use the arrow keys to browse, or choose Slideshow to advance automatically.")
                 }
                 topic("Update the app and dependencies", icon: "arrow.trianglehead.clockwise") {
-                    Text("In Settings, save a GitHub token with read access to the private MediaHarbor repository. Check for Updates finds signed releases, including their bundled dependencies. You can also opt in to installation at launch when the app is idle.")
+                    Text("In Settings, Check for Updates finds signed releases, including their bundled dependencies. You can also opt in to installation at launch when the app is idle.")
                 }
             }
             .padding(26)

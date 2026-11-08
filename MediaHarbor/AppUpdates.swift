@@ -22,7 +22,6 @@ private final class ReleaseRedirects: NSObject, URLSessionTaskDelegate {
 final class AppUpdates {
     struct Release: Decodable {
         struct Asset: Decodable {
-            let id: Int
             let name: String
             let size: Int
         }
@@ -33,11 +32,11 @@ final class AppUpdates {
     }
 
     private enum UpdateError: LocalizedError {
-        case access, response, archive, signature, invalidApp, installation, busy
+        case rateLimit, response, archive, signature, invalidApp, installation, busy
 
         var errorDescription: String? {
             switch self {
-            case .access: "Enter a GitHub token with read access to the MediaHarbor repository."
+            case .rateLimit: "GitHub has limited update checks from this connection. Try again later."
             case .response: "GitHub could not provide the latest release."
             case .archive: "This release is missing a complete update archive and signature."
             case .signature: "The update signature could not be verified."
@@ -55,7 +54,7 @@ final class AppUpdates {
     private static let signatureName = "Media.Harbor.zip.sig"
     private let session: URLSession
     private var checkedThisLaunch = false
-    private(set) var hasToken = UserDefaults.standard.bool(forKey: "githubUpdateConnected")
+    private(set) var hasSavedToken = UserDefaults.standard.bool(forKey: "githubUpdateConnected")
     private(set) var message = ""
     private(set) var working = false
     private(set) var available: Release?
@@ -71,28 +70,10 @@ final class AppUpdates {
         session = URLSession(configuration: configuration, delegate: ReleaseRedirects(), delegateQueue: nil)
     }
 
-    func saveToken(_ input: String) {
-        let token = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !token.isEmpty, !token.contains(where: \.isWhitespace) else {
-            message = UpdateError.access.localizedDescription
-            return
-        }
-        do {
-            try CredentialKeychain.save(["token": token], for: "github", service: Self.service)
-            hasToken = true
-            UserDefaults.standard.set(true, forKey: "githubUpdateConnected")
-            message = "GitHub token saved in Keychain."
-        } catch {
-            message = error.localizedDescription
-        }
-    }
-
     func removeToken() {
         do {
             try CredentialKeychain.remove("github", service: Self.service)
-            hasToken = false
-            automatic = false
-            available = nil
+            hasSavedToken = false
             UserDefaults.standard.removeObject(forKey: "githubUpdateConnected")
             message = "GitHub token removed."
         } catch {
@@ -101,7 +82,7 @@ final class AppUpdates {
     }
 
     func checkOnLaunch(canInstall: () -> Bool) async {
-        guard automatic, hasToken, !checkedThisLaunch else { return }
+        guard automatic, !checkedThisLaunch else { return }
         checkedThisLaunch = true
         await check()
         if automatic, available != nil, canInstall() { await install(canInstall: { self.automatic && canInstall() }) }
@@ -114,11 +95,13 @@ final class AppUpdates {
         message = "Checking GitHub for app and dependency updates…"
         available = nil
         do {
-            let (data, response) = try await session.data(for: request("releases/latest", accept: "application/vnd.github+json"))
+            var request = URLRequest(url: Self.repository.appending(path: "releases/latest"))
+            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+            let (data, response) = try await session.data(for: request)
             try Self.checkResponse(response)
             let release = try JSONDecoder().decode(Release.self, from: data)
             let installed = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
-            guard release.version.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+$"#, options: .regularExpression) != nil,
+            guard release.tag_name.range(of: #"^v?[0-9]+\.[0-9]+\.[0-9]+$"#, options: .regularExpression) != nil,
                   release.version.compare(installed, options: .numeric) == .orderedDescending else {
                 message = "Media Harbor and its bundled dependencies are up to date."
                 return
@@ -142,9 +125,9 @@ final class AppUpdates {
             guard let zip = release.assets.first(where: { $0.name == Self.archiveName }),
                   let sig = release.assets.first(where: { $0.name == Self.signatureName }),
                   (1...400 * 1024 * 1024).contains(zip.size), sig.size == 64 else { throw UpdateError.archive }
-            let (signature, response) = try await session.data(for: request("releases/assets/\(sig.id)", accept: "application/octet-stream"))
+            let (signature, response) = try await session.data(from: Self.assetURL(sig, release: release))
             try Self.checkResponse(response)
-            let (archive, download) = try await session.download(for: request("releases/assets/\(zip.id)", accept: "application/octet-stream"))
+            let (archive, download) = try await session.download(from: Self.assetURL(zip, release: release))
             defer { try? FileManager.default.removeItem(at: archive) }
             try Self.checkResponse(download)
             guard try archive.resourceValues(forKeys: [.fileSizeKey]).fileSize == zip.size else { throw UpdateError.archive }
@@ -169,18 +152,17 @@ final class AppUpdates {
         }
     }
 
-    private func request(_ path: String, accept: String) throws -> URLRequest {
-        guard let token = CredentialKeychain.load("github", service: Self.service)?["token"] else { throw UpdateError.access }
-        var request = URLRequest(url: Self.repository.appending(path: path))
-        request.setValue(accept, forHTTPHeaderField: "Accept")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        return request
+    private static func assetURL(_ asset: Release.Asset, release: Release) -> URL {
+        releasesPage.appending(component: "download").appending(component: release.tag_name).appending(component: asset.name)
     }
 
     private nonisolated static func checkResponse(_ response: URLResponse) throws {
-        guard let status = (response as? HTTPURLResponse)?.statusCode else { throw UpdateError.response }
-        if [401, 403, 404].contains(status) { throw UpdateError.access }
-        guard status == 200 else { throw UpdateError.response }
+        guard let response = response as? HTTPURLResponse else { throw UpdateError.response }
+        if response.statusCode == 429 ||
+            (response.statusCode == 403 && response.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0") {
+            throw UpdateError.rateLimit
+        }
+        guard response.statusCode == 200 else { throw UpdateError.response }
     }
 
     private nonisolated static func stage(_ archive: URL, signature: Data, key: String, nextVersion: String,
@@ -240,29 +222,18 @@ final class AppUpdates {
 struct UpdateSettings: View {
     @Bindable var updates: AppUpdates
     let canInstall: () -> Bool
-    @State private var token = ""
 
     var body: some View {
         Section("App and dependency updates") {
-            if updates.hasToken {
-                Toggle("Install updates automatically on launch", isOn: $updates.automatic)
-                    .help("Install a signed release when the app is idle, then reopen Media Harbor")
-                Button("Remove GitHub Token", role: .destructive) { updates.removeToken() }
+            Toggle("Install updates automatically on launch", isOn: $updates.automatic)
+                .help("Install a signed release when the app is idle, then reopen Media Harbor")
+            if updates.hasSavedToken {
+                Button("Remove Previously Saved GitHub Token", role: .destructive) { updates.removeToken() }
                     .disabled(updates.working)
-            } else {
-                SecureField("GitHub repository token", text: $token)
-                Button("Save GitHub Token") {
-                    updates.saveToken(token)
-                    token = ""
-                }
-                .disabled(token.isEmpty || updates.working)
-                Link("Create a fine-grained GitHub token", destination: URL(string: "https://github.com/settings/personal-access-tokens/new")!)
-                Text("Grant Contents read access to TMRJIJ/MediaHarbor.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
             HStack {
                 Button("Check for Updates") { Task { await updates.check() } }
-                    .disabled(updates.working || !updates.hasToken)
+                    .disabled(updates.working)
                 if updates.available != nil {
                     Button("Install and Restart") { Task { await updates.install(canInstall: canInstall) } }
                         .disabled(updates.working || !canInstall())

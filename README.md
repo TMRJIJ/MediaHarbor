@@ -4,7 +4,7 @@ Media Harbor is a native bulk media downloader for macOS Tahoe 26 and newer on A
 
 ## Install and get help
 
-Download **Media.Harbor.zip** from [GitHub Releases](https://github.com/TMRJIJ/MediaHarbor/releases), unzip it, and move **Media Harbor.app** to Applications. The repository requires GitHub access. To run from source, follow [Build from source](#build-from-source).
+Visit the [Media Harbor website](https://tmrjij.github.io/MediaHarbor/) or [download the latest ZIP](https://github.com/TMRJIJ/MediaHarbor/releases/latest/download/Media.Harbor.zip). Unzip it and move **Media Harbor.app** to Applications. To run from source, follow [Build from source](#build-from-source).
 
 Open **Help → Media Harbor Help** for instructions in the app. The **Support** section in the sidebar also opens Help and About. Hover over a control for a short description.
 
@@ -85,7 +85,7 @@ The complete list of Python wheels and runtime checksums is in the [gallery lock
 
 ## App and dependency updates
 
-In **Settings → App and dependency updates**, save a fine-grained GitHub token with **Contents: Read-only** access to **TMRJIJ/MediaHarbor**. Media Harbor stores the token in macOS Keychain and uses it to access the private release downloads. Select **Check for Updates**, then **Install and Restart** when a newer signed build is available. Dependency versions move together with the app in each release.
+In **Settings → App and dependency updates**, select **Check for Updates**, then **Install and Restart** when a newer signed build is available. Checks and downloads use the public repository. If you saved a token in an earlier version, you can remove it in the same settings section. Dependency versions move together with the app in each release.
 
 **Install updates automatically on launch** is optional and off by default. When enabled, Media Harbor checks at launch and installs a verified release when the app is idle. Install the app in a writable location to allow replacement.
 
