@@ -52,6 +52,8 @@ ViperGirls scans automatically follow supported gallery links inside forum posts
 
 Media Harbor can verify full-size files directly when an IMX, Imgbox, or Pixhost thumbnail matches its destination. It also looks up up to 100 linked image pages with gallery-dl, including ImageBam, ImageVenue, ImageTwist, Postimages, ImgBB, and TurboImageHost. The scan recognizes alternate domains such as `pixhost.to` and `postimages.org`. When a lookup yields a full-size image, it replaces the thumbnail. Otherwise the preview remains eligible. The browser can also follow up to 25 linked galleries or other destinations, with up to 10 next pages per destination.
 
+Linked single images use the original page or thread for folder naming. A linked album can still use its own folder.
+
 **Ignore page assets** is on by default in Site Browser’s scan settings. It filters common logos, avatars, icons, emoji, and loading images using page labels and filenames. Ordinary GIFs and small images remain eligible. Turn it off and start a new scan if a desired image was filtered.
 
 ## gallery-dl templates and authentication

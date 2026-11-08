@@ -145,6 +145,20 @@ private struct PageDiscovery {
     var exploration: [URL] = []
     var galleries: [LinkedGallery] = []
     var images: Set<URL> = []
+    var pageTitle: String?
+    var galleryTitle: String?
+}
+
+private struct LinkedImageCollection {
+    let url: URL
+    let pageTitle: String?
+    let galleryTitle: String?
+
+    func apply(to candidate: inout MediaCandidate) {
+        candidate.collectionURL = url
+        candidate.pageTitle = pageTitle
+        candidate.galleryTitle = galleryTitle
+    }
 }
 
 private enum ScanError: LocalizedError {
@@ -456,7 +470,8 @@ final class SiteBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
                         skipped += 1
                     }
                 }
-                let linked = try await resolveLinkedGalleries(galleries, scrolling: scrolling)
+                let linked = try await resolveLinkedGalleries(galleries, scrolling: scrolling,
+                    collection: LinkedImageCollection(url: collection, pageTitle: initial.pageTitle, galleryTitle: initial.galleryTitle))
                 message = found.isEmpty
                     ? (url.isXSite ? "No media links found on this X page. Open a post with media or a profile’s Media tab, then scan again."
                        : "No downloadable links found. Sign in if needed, scroll to load more media, or adjust the site template.")
@@ -548,13 +563,17 @@ final class SiteBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
-    private func resolveLinkedGalleries(_ links: [LinkedGallery], scrolling: Bool) async throws -> (pages: Int, images: Int) {
+    private func resolveLinkedGalleries(_ links: [LinkedGallery], scrolling: Bool,
+                                        collection: LinkedImageCollection) async throws -> (pages: Int, images: Int) {
         guard !links.isEmpty else { return (0, 0) }
         let groups = Dictionary(grouping: links, by: \.url)
-        let direct = try await resolveDirectOriginals(links, groups: groups)
+        let direct = try await resolveDirectOriginals(links, groups: groups, collection: collection)
         let hosts = Set(gallery.sites.flatMap(\.hosts))
+        let singleImageHosts = Set(gallery.sites.filter {
+            $0.linkedImages == true && $0.examples.count == 1 && $0.examples["image"] != nil
+        }.flatMap(\.hosts))
         let cookies = await webView.configuration.websiteDataStore.httpCookieStore.allCookies()
-        let imagePages = try await resolveLinkedImagePages(links, groups: groups, direct: direct, cookies: cookies)
+        let imagePages = try await resolveLinkedImagePages(links, groups: groups, direct: direct, cookies: cookies, collection: collection)
         var seen: Set<URL> = []
         var resolvedImages = Set(direct.values).union(imagePages.values.flatMap { $0 })
         let originalCount = resolvedImages.count
@@ -574,8 +593,10 @@ final class SiteBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
             message = "Scanning linked gallery on \(host)…"
             do {
                 let previews = Set(groups[link.url, default: []].flatMap(\.previews))
+                let singleImage = singleImageHosts.contains { host == $0 || host.hasSuffix("." + $0) }
                 let originals = try await scanLinkedGallery(address, rule: rule, useExtractor: custom == nil && supported,
-                                                           cookies: cookies, scrolling: scrolling).subtracting(previews)
+                                                           cookies: cookies, scrolling: scrolling,
+                                                           collection: singleImage ? collection : nil).subtracting(previews)
                 guard !originals.isEmpty else { continue }
                 resolved += 1
                 resolvedImages.formUnion(originals)
@@ -590,7 +611,8 @@ final class SiteBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     private func resolveLinkedImagePages(_ links: [LinkedGallery], groups: [URL: [LinkedGallery]],
-                                         direct: [URL: URL], cookies: [HTTPCookie]) async throws -> [URL: Set<URL>] {
+                                         direct: [URL: URL], cookies: [HTTPCookie],
+                                         collection: LinkedImageCollection) async throws -> [URL: Set<URL>] {
         let domains = Set(gallery.sites.filter { $0.linkedImages == true }.flatMap(\.hosts))
         var seen: Set<URL> = []
         var batches: [String: [URL]] = [:]
@@ -619,7 +641,7 @@ final class SiteBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
                     guard let source = candidate.source, candidate.kind == .image, sources.contains(source),
                           !previews[source, default: []].contains(candidate.url) else { return }
                     var candidate = candidate
-                    candidate.collectionURL = source
+                    collection.apply(to: &candidate)
                     mergeGalleryMedia(candidate, headers: headers, streamCookies: streamCookies)
                     if found.contains(where: { $0.url == candidate.url }) {
                         resolved[source, default: []].insert(candidate.url)
@@ -634,7 +656,8 @@ final class SiteBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
         return resolved
     }
 
-    private func resolveDirectOriginals(_ links: [LinkedGallery], groups: [URL: [LinkedGallery]]) async throws -> [URL: URL] {
+    private func resolveDirectOriginals(_ links: [LinkedGallery], groups: [URL: [LinkedGallery]],
+                                         collection: LinkedImageCollection) async throws -> [URL: URL] {
         var seen: Set<URL> = []
         let pairs = links.compactMap { link -> (landing: URL, original: URL)? in
             guard seen.insert(link.url).inserted, !templates.contains(where: { $0.matches(link.url) }),
@@ -676,8 +699,8 @@ final class SiteBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
                 let preview = index.map { found[$0] }
                 let candidate = MediaCandidate(url: original, source: landing, kind: .image,
                                                requestHeaders: ["Referer": landing.absoluteString],
-                                               collectionURL: preview?.collectionURL ?? homeURL,
-                                               galleryTitle: preview?.galleryTitle, pageTitle: preview?.pageTitle)
+                                               collectionURL: collection.url,
+                                               galleryTitle: collection.galleryTitle, pageTitle: collection.pageTitle)
                 if let index, let preview {
                     found[index] = candidate
                     if selected.remove(preview.url) != nil { selected.insert(original) }
@@ -712,13 +735,14 @@ final class SiteBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     private func scanLinkedGallery(_ address: URL, rule: SiteTemplate?, useExtractor: Bool,
-                                   cookies: [HTTPCookie], scrolling: Bool) async throws -> Set<URL> {
+                                   cookies: [HTTPCookie], scrolling: Bool, collection: LinkedImageCollection?) async throws -> Set<URL> {
         var originals: Set<URL> = []
         if useExtractor {
             do {
                 _ = try await gallery.scan(address, browserCookies: cookies) { candidate, headers, streamCookies in
                     var candidate = candidate
                     candidate.collectionURL = address
+                    collection?.apply(to: &candidate)
                     mergeGalleryMedia(candidate, headers: headers, streamCookies: streamCookies)
                     if candidate.kind == .image { originals.insert(candidate.url) }
                 }
@@ -747,7 +771,8 @@ final class SiteBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
                 if title == nil { title = crawler.title }
                 let result = try await scanPage(crawler, source: destination, template: rule, search: nil,
                                                 follow: false, scrolling: scrolling, xMedia: false,
-                                                collection: address, pageTitle: title)
+                                                collection: collection?.url ?? address, pageTitle: title,
+                                                linkedImageCollection: collection)
                 originals.formUnion(result.images)
                 pages.append(contentsOf: result.pages)
             } catch is CancellationError {
@@ -770,7 +795,8 @@ final class SiteBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     private func scanPage(_ view: WKWebView, source: URL, template: SiteTemplate?, search: SearchEngine?,
                           follow: Bool, scrolling: Bool, xMedia: Bool, collection: URL, pageTitle: String?,
-                          linkedSelector: String? = nil) async throws -> PageDiscovery {
+                          linkedSelector: String? = nil,
+                          linkedImageCollection: LinkedImageCollection? = nil) async throws -> PageDiscovery {
         var discovery = PageDiscovery()
         var seen: Set<URL> = []
         var explored: Set<URL> = []
@@ -786,12 +812,15 @@ final class SiteBrowser: NSObject, WKNavigationDelegate, WKUIDelegate {
             let result = try await extract(view, template: template, search: search, follow: follow, xMedia: xMedia,
                                            linkedSelector: linkedSelector)
             try Task.checkCancellation()
+            discovery.pageTitle = discovery.pageTitle ?? pageTitle ?? result.pageTitle
+            discovery.galleryTitle = discovery.galleryTitle ?? result.galleryTitle
             if !result.media.isEmpty { foundMedia = true }
             replaced.formUnion(result.replacedPreviews ?? [])
             let media = result.media.filter { !replaced.contains($0.url) }
             removePreviews(replaced, preserving: [])
-            merge(media, source: source, collection: collection, pageTitle: pageTitle ?? result.pageTitle,
-                  galleryTitle: result.galleryTitle)
+            merge(media, source: source, collection: collection,
+                  pageTitle: linkedImageCollection == nil ? pageTitle ?? result.pageTitle : linkedImageCollection?.pageTitle,
+                  galleryTitle: linkedImageCollection == nil ? result.galleryTitle : linkedImageCollection?.galleryTitle)
             discovery.images.formUnion(media.lazy.filter { $0.kind == .image }.map(\.url))
             discovery.pages.append(contentsOf: result.pages.filter { seen.insert($0).inserted })
             discovery.exploration.append(contentsOf: (result.exploration ?? []).filter { explored.insert($0).inserted })
